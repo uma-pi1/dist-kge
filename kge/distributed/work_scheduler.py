@@ -327,8 +327,7 @@ class RandomWorkScheduler(WorkScheduler):
         config,
         dataset,
     ):
-        self.partition_type = "random"
-        self.dataset = dataset
+        dataset._partition_type = "random"
         super(RandomWorkScheduler, self).__init__(
             config=config,
             dataset=dataset,
@@ -369,7 +368,7 @@ class RelationWorkScheduler(WorkScheduler):
         config,
         dataset,
     ):
-        self.partition_type = "relation"
+        dataset._partition_type = "relation"
         super(RelationWorkScheduler, self).__init__(
             config=config,
             dataset=dataset,
@@ -377,9 +376,7 @@ class RelationWorkScheduler(WorkScheduler):
 
     def _init_in_started_process(self):
         super(RelationWorkScheduler, self)._init_in_started_process()
-        self.relations_to_partition = self.dataset.load_relations_to_partitions(
-            self.partition_type, self.num_partitions
-        )
+        self.relations_to_partition = self.dataset.load_relations_to_partitions(self.num_partitions)
         self.relations_to_partition = self._get_relations_in_partition()
 
     def _next_work(
@@ -399,9 +396,7 @@ class RelationWorkScheduler(WorkScheduler):
             return WorkPackage()
 
     def _load_partitions(self, num_partitions):
-        partition_assignment = self.dataset.load_train_partitions(
-            self.partition_type, num_partitions
-        )
+        partition_assignment = self.dataset.load_train_partitions(num_partitions)
         # todo: let the partitions start at zero, then we do not need this unique
         partition_indexes = np.unique(partition_assignment)
         partitions = [
@@ -431,7 +426,7 @@ class GraphCutWorkScheduler(WorkScheduler):
         config,
         dataset,
     ):
-        self.partition_type = "graph-cut"
+        dataset._partition_type = "graph-cut"
         super(GraphCutWorkScheduler, self).__init__(
             config=config,
             dataset=dataset,
@@ -439,9 +434,7 @@ class GraphCutWorkScheduler(WorkScheduler):
 
     def _init_in_started_process(self):
         super(GraphCutWorkScheduler, self)._init_in_started_process()
-        self.entities_to_partition = self.dataset.load_entities_to_partitions(
-            self.partition_type, self.num_partitions
-        )
+        self.entities_to_partition = self.dataset.load_entities_to_partitions(self.num_partitions)
         self.entities_to_partition = self._get_entities_in_partition()
         self.previous_partition_per_worker = defaultdict(lambda: None)
 
@@ -472,9 +465,7 @@ class GraphCutWorkScheduler(WorkScheduler):
             return WorkPackage()
 
     def _load_partitions(self, num_partitions):
-        partition_assignment = self.dataset.load_train_partitions(
-            self.partition_type, num_partitions
-        )
+        partition_assignment = self.dataset.load_train_partitions(num_partitions)
         # todo: let the partitions start at zero, then we do not need this unique
         partition_indexes = np.unique(partition_assignment)
         partitions = [
@@ -505,7 +496,7 @@ class StratificationWorkScheduler(WorkScheduler):
         config,
         dataset,
     ):
-        self.partition_type = "stratification"
+        dataset._partition_type = "stratification"
         self.combine_mirror_blocks = config.get("job.distributed.stratification.combine_mirror")
         super(StratificationWorkScheduler, self).__init__(
             config=config,
@@ -531,9 +522,7 @@ class StratificationWorkScheduler(WorkScheduler):
         super(StratificationWorkScheduler, self)._init_in_started_process()
         # self.work_to_do = deepcopy(self.partitions)
         self._initialized_entity_blocks = set()
-        entities_to_partition = self.dataset.load_entities_to_partitions(
-            self.partition_type, self.num_partitions
-        )
+        entities_to_partition = self.dataset.load_entities_to_partitions(self.num_partitions)
         self._entities_in_bucket = self._get_entities_in_strata(
             entities_to_partition,
             self.partitions,
@@ -866,9 +855,7 @@ class StratificationWorkScheduler(WorkScheduler):
 
     def _load_partitions(self, num_partitions):
         start = time.time()
-        partition_assignment = self.dataset.load_train_partitions(
-            self.partition_type, num_partitions
-        )
+        partition_assignment = self.dataset.load_train_partitions(num_partitions)
         partitions = self._construct_partitions(partition_assignment, num_partitions)
         print("partition load time", time.time() - start)
         return partitions

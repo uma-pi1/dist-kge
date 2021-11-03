@@ -63,6 +63,9 @@ class Dataset(Configurable):
         #: data derived automatically from the splits or meta data. Indexed by key.
         self._indexes: Dict[str, Any] = {}
 
+        #: partitioning type for distributed training
+        self._partition_type = None
+
         #: functions that compute and add indexes as needed; arguments are dataset and
         #: key. Index functions are expected to not recompute an index that is already
         #: present. Indexed by key (same key as in self._indexes)
@@ -351,39 +354,39 @@ class Dataset(Configurable):
             Dataset._pickle_dump_atomic(partition_assignment, pickle_filename)
         return partition_assignment
 
-    def load_entities_to_partitions(self, partition_type, num_partitions):
+    def load_entities_to_partitions(self, num_partitions):
         print("loading partitions")
         return self._load_list(
             os.path.join(
                 self.folder,
                 "partitions",
-                partition_type,
+                self._partition_type,
                 f"num_{num_partitions}",
                 "entity_to_partitions.del",
             ),
             use_pickle=self.config.get("dataset.pickle"),
         )
 
-    def load_relations_to_partitions(self, partition_type, num_partitions):
+    def load_relations_to_partitions(self, num_partitions):
         print("loading partitions")
         return self._load_list(
             os.path.join(
                 self.folder,
                 "partitions",
-                partition_type,
+                self._partition_type,
                 f"num_{num_partitions}",
                 "relation_to_partitions.del",
             ),
             use_pickle=self.config.get("dataset.pickle"),
         )
 
-    def load_train_partitions(self, partition_type, num_partitions):
+    def load_train_partitions(self, num_partitions):
         print("loading partitions")
         return self._load_list(
             os.path.join(
                 self.folder,
                 "partitions",
-                partition_type,
+                self._partition_type,
                 f"num_{num_partitions}",
                 "train_assign_partitions.del",
             ),
