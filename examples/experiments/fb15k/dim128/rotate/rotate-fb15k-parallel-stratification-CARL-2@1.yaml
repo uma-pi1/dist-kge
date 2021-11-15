@@ -1,0 +1,84 @@
+dataset:
+  name: fb15k
+distributed_model:
+  base_model:
+    type: rotate
+entity_ranking:
+  chunk_size: 5000
+eval:
+  batch_size: 512
+  num_workers: 4
+import:
+- distributed_model
+- rotate
+job:
+  device_pool:
+  - cuda:0
+  - cuda:1
+  distributed:
+    num_partitions: 8
+    num_workers: 4
+    parameter_server: shared
+    partition_type: stratification
+    entity_sync_level: partition
+lookup_embedder:
+  dim: 128
+  initialize: xavier_uniform_
+  initialize_args:
+    normal_:
+      mean: 0.0
+      std: 0.7247714657764338
+    uniform_:
+      a: -0.7264893817037996
+    xavier_normal_:
+      gain: 1.0
+    xavier_uniform_:
+      gain: 1.0
+  regularize_args:
+    weighted: true
+  sparse: true
+model: distributed_model
+modules:
+- kge.model
+- kge.model.embedder
+- kge.job
+negative_sampling:
+  implementation: batch
+  num_samples:
+    o: 400
+    s: 191
+  shared: true
+  shared_type: naive
+  sampling_type: pooled
+rotate:
+  entity_embedder:
+    dropout: -0.4202541569247842
+    regularize_weight: 0.0016039710378808378
+  relation_embedder:
+    dropout: -0.4545119274407625
+    regularize_weight: 9.709504921691681e-20
+train:
+  auto_correct: true
+  batch_size: 1024
+  loss_arg: .nan
+  lr_scheduler: ReduceLROnPlateau
+  lr_scheduler_args:
+    factor: 0.95
+    mode: max
+    patience: 9
+    threshold: 0.0001
+  max_epochs: 3
+  num_workers: 4
+  optimizer:
+    default:
+      args:
+        lr: 0.16755594652229405
+      type: dist_adagrad
+  type: distributed_negative_sampling
+valid:
+  early_stopping:
+    patience: 10
+    threshold:
+      epochs: 50
+      metric_value: 0.1
+

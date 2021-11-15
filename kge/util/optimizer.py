@@ -4,29 +4,66 @@ from torch.optim.lr_scheduler import _LRScheduler
 import re
 from operator import or_
 from functools import reduce
+from kge.util.dist_sgd import DistSGD
+from kge.util.dist_adagrad import DistAdagrad
 
 
 class KgeOptimizer:
     """ Wraps torch optimizers """
 
     @staticmethod
-    def create(config, model):
+    def create(config, model, parameter_client=None, lapse_indexes=None):
         """ Factory method for optimizer creation """
-        try:
-            optimizer = getattr(torch.optim, config.get("train.optimizer.default.type"))
-            return optimizer(
-                KgeOptimizer._get_parameters_and_optimizer_args(config, model),
+        if config.get("train.optimizer.default.type") == "dist_sgd":
+            optimizer = DistSGD(
+                model,
+                parameter_client=parameter_client,
+                lapse_indexes=lapse_indexes,
                 **config.get("train.optimizer.default.args"),
             )
-        except AttributeError:
-            # perhaps TODO: try class with specified name -> extensibility
-            raise ValueError(
-                f"Could not create optimizer {config.get('train.optimizer')}. "
-                f"Please specify an optimizer provided in torch.optim"
+            return optimizer
+        if config.get("train.optimizer.default.type") in ["dist_adagrad", "dist_rowadagrad"]:
+            from kge.distributed.misc import get_min_rank
+            is_row = False
+            use_lr_scheduler = False
+            if config.get("train.optimizer.default.type") == "dist_rowadagrad":
+                is_row = True
+            if config.get("train.lr_scheduler") != "":
+                use_lr_scheduler = True
+            min_rank = get_min_rank(config)
+            optimizer = DistAdagrad(
+                KgeOptimizer._get_parameters_and_optimizer_args(
+                    config,
+                    model,
+                    distributed=True
+                ),
+                parameter_client=parameter_client,
+                lapse_indexes=lapse_indexes,
+                lapse_optimizer_index_offset=model.dataset.num_entities() + model.dataset.num_relations(),
+                async_write_back=[config.get("job.distributed.entity_async_write_back"),
+                                  config.get("job.distributed.relation_async_write_back")],
+                is_row=is_row,
+                use_lr_scheduler=use_lr_scheduler,
+                min_rank=min_rank,
+                **config.get("train.optimizer.default.args"),
             )
+            return optimizer
+        else:
+            try:
+                optimizer = getattr(torch.optim, config.get("train.optimizer.default.type"))
+                return optimizer(
+                    KgeOptimizer._get_parameters_and_optimizer_args(config, model),
+                    **config.get("train.optimizer.default.args"),
+                )
+            except AttributeError:
+                # perhaps TODO: try class with specified name -> extensibility
+                raise ValueError(
+                    f"Could not create optimizer {config.get('train.optimizer')}. "
+                    f"Please specify an optimizer provided in torch.optim"
+                )
 
     @staticmethod
-    def _get_parameters_and_optimizer_args(config, model):
+    def _get_parameters_and_optimizer_args(config, model, distributed=False):
         """
         Group named parameters by regex strings provided with optimizer args.
         Constructs a list of dictionaries of the form:
@@ -72,6 +109,20 @@ class KgeOptimizer:
                 named_parameters[param] for param in params
             ]
             optimizer_settings[group_name]["args"]["name"] = group_name
+            if distributed and (group_name == "entity" or group_name == "relation"):
+                optimizer_settings[group_name]["args"][
+                    "async_write_back"] = config.get(
+                    f"job.distributed.{group_name}_async_write_back")
+                optimizer_settings[group_name]["args"]["sync_level"] = config.get(
+                    f"job.distributed.{group_name}_sync_level")
+                optimizer_settings[group_name]["args"][
+                    "local_to_lapse_mapper"] = getattr(
+                    model,
+                    f"_{group_name}_embedder").local_to_lapse_mapper
+                optimizer_settings[group_name]["args"]["optimizer_values"] = getattr(
+                    model,
+                    f"_{group_name}_embedder"
+                ).optimizer_values
             resulting_parameters.append(optimizer_settings[group_name]["args"])
 
         # add unmatched parameters to default group

@@ -1,0 +1,82 @@
+complex:
+  entity_embedder:
+    dropout: 0.44299428910017014
+    regularize_weight: 7.830757856352985e-12
+  relation_embedder:
+    dropout: -0.4746062336489558
+    regularize_weight: 1.1828758036833604e-10
+dataset:
+  name: wikidata5m
+entity_ranking:
+  chunk_size: 20000
+  metrics_per:
+    relation_type: false
+eval:
+  batch_size: 256
+  trace_level: epoch
+import:
+- complex
+- distribtued_model
+job:
+  device_pool:
+  - cuda:0
+  distributed:
+    parameter_server: lapse
+    gloo_socket_ifname: bond0
+    num_machines: 2
+    num_partitions: 4
+    num_workers: 4
+    num_workers_machine: 2
+lookup_embedder:
+  dim: 128
+  initialize_args:
+    normal_:
+      mean: 0.0
+      std: 5.897056808182483e-05
+    uniform_:
+      a: -0.664490172216082
+    xavier_normal_:
+      gain: 1.0
+    xavier_uniform_:
+      gain: 1.0
+  regularize_args:
+    p: 1
+    weighted: true
+  sparse: true
+model: distributed_model
+modules:
+- kge.model
+- kge.job
+- kge.model.embedder
+negative_sampling:
+  implementation: batch
+  num_samples:
+    o: 236
+    s: 66
+  shared: true
+train:
+  auto_correct: true
+  batch_size: 1024
+  loss_arg: 1.0
+  lr_scheduler: ReduceLROnPlateau
+  lr_scheduler_args:
+    factor: 0.95
+    mode: max
+    patience: 1
+    threshold: 0.0001
+  max_epochs: 300
+  num_workers: 4
+  optimizer:
+    default:
+      args:
+        lr: 0.6560544247476346
+      type: dist_adagrad
+  type: distributed_negative_sampling
+valid:
+  early_stopping:
+    patience: 10
+    threshold:
+      epochs: 10
+      metric_value: 0.1
+  every: 10
+

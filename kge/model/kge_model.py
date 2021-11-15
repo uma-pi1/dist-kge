@@ -11,6 +11,7 @@ import kge
 from kge import Config, Configurable, Dataset
 from kge.misc import filename_in_module, init_from
 from kge.util import load_checkpoint
+from kge.distributed.misc import get_min_rank
 from typing import Any, Dict, List, Optional, Union, Tuple
 
 from typing import TYPE_CHECKING
@@ -261,8 +262,13 @@ class KgeEmbedder(KgeBase):
         configuration_key: str,
         vocab_size: int,
         init_for_load_only=False,
+        parameter_client=None,
+        lapse_offset=0,
+        complete_vocab_size=None,
     ) -> "KgeEmbedder":
         """Factory method for embedder creation."""
+        if complete_vocab_size is None:
+            complete_vocab_size = vocab_size
 
         try:
             embedder_type = config.get_default(configuration_key + ".type")
@@ -271,15 +277,30 @@ class KgeEmbedder(KgeBase):
             raise Exception("Can't find {}.type in config".format(configuration_key))
 
         try:
-            embedder = init_from(
-                class_name,
-                config.get("modules"),
-                config,
-                dataset,
-                configuration_key,
-                vocab_size,
-                init_for_load_only=init_for_load_only,
-            )
+            if "distributed" in config.get("train.type"):
+                class_name = "Distributed" + class_name
+                embedder = init_from(
+                    class_name,
+                    config.get("modules"),
+                    config=config,
+                    dataset=dataset,
+                    configuration_key=configuration_key,
+                    vocab_size=vocab_size,
+                    init_for_load_only=init_for_load_only,
+                    parameter_client=parameter_client,
+                    lapse_offset=lapse_offset,
+                    complete_vocab_size=complete_vocab_size
+                )
+            else:
+                embedder = init_from(
+                    class_name,
+                    config.get("modules"),
+                    config,
+                    dataset,
+                    configuration_key,
+                    vocab_size,
+                    init_for_load_only=init_for_load_only,
+                )
             return embedder
         except:
             config.log(
@@ -350,6 +371,10 @@ class KgeEmbedder(KgeBase):
         """Returns all embeddings."""
         raise NotImplementedError
 
+    def push_back(self) -> None:
+        """Pushes used values back to parameter server"""
+        pass
+
 
 class KgeModel(KgeBase):
     r"""Generic KGE model for KBs with a fixed set of entities and relations.
@@ -368,6 +393,8 @@ class KgeModel(KgeBase):
         create_embedders=True,
         configuration_key=None,
         init_for_load_only=False,
+        parameter_client=None,
+        max_partition_entities=0,
     ):
         super().__init__(config, dataset, configuration_key)
 
@@ -380,12 +407,25 @@ class KgeModel(KgeBase):
         self._relation_embedder: KgeEmbedder
 
         if create_embedders:
+            self._create_embedders(init_for_load_only)
+        elif False:
+            #if self.get_option("create_complete"):
+            #    embedding_layer_size = dataset.num_entities()
+            if config.get("job.distributed.entity_sync_level") == "partition" and max_partition_entities != 0:
+                embedding_layer_size =max_partition_entities
+            else:
+                embedding_layer_size = self._calc_embedding_layer_size(config, dataset)
+            config.log(f"creating entity_embedder with {embedding_layer_size} keys")
             self._entity_embedder = KgeEmbedder.create(
-                config,
-                dataset,
-                self.configuration_key + ".entity_embedder",
-                dataset.num_entities(),
+                config=config,
+                dataset=dataset,
+                configuration_key=self.configuration_key + ".entity_embedder",
+                #dataset.num_entities(),
+                vocab_size=embedding_layer_size,
                 init_for_load_only=init_for_load_only,
+                parameter_client=parameter_client,
+                lapse_offset=0,
+                complete_vocab_size=dataset.num_entities()
             )
 
             #: Embedder used for relations
@@ -396,9 +436,12 @@ class KgeModel(KgeBase):
                 self.configuration_key + ".relation_embedder",
                 num_relations,
                 init_for_load_only=init_for_load_only,
+                parameter_client=parameter_client,
+                lapse_offset=dataset.num_entities(),
+                complete_vocab_size=dataset.num_relations(),
             )
 
-            if not init_for_load_only:
+            if not init_for_load_only and parameter_client.rank == get_min_rank(config):
                 # load pretrained embeddings
                 pretrained_entities_filename = ""
                 pretrained_relations_filename = ""
@@ -420,7 +463,7 @@ class KgeModel(KgeBase):
                             f"{pretrained_filename}"
                         )
                         checkpoint = load_checkpoint(pretrained_filename)
-                        return KgeModel.create_from(checkpoint)
+                        return KgeModel.create_from(checkpoint, parameter_client=parameter_client)
                     return None
 
                 pretrained_entities_model = load_pretrained_model(
@@ -459,6 +502,105 @@ class KgeModel(KgeBase):
         else:
             self._scorer = scorer
 
+    def _create_embedders(self, init_for_load_only):
+        self._entity_embedder = KgeEmbedder.create(
+            self.config,
+            self.dataset,
+            self.configuration_key + ".entity_embedder",
+            self.dataset.num_entities(),
+            init_for_load_only=init_for_load_only,
+        )
+
+        #: Embedder used for relations
+        num_relations = self.dataset.num_relations()
+        self._relation_embedder = KgeEmbedder.create(
+            self.config,
+            self.dataset,
+            self.configuration_key + ".relation_embedder",
+            num_relations,
+            init_for_load_only=init_for_load_only,
+        )
+
+        if not init_for_load_only:
+            # load pretrained embeddings
+            pretrained_entities_filename = ""
+            pretrained_relations_filename = ""
+            if self.has_option("entity_embedder.pretrain.model_filename"):
+                pretrained_entities_filename = self.get_option(
+                    "entity_embedder.pretrain.model_filename"
+                )
+            if self.has_option("relation_embedder.pretrain.model_filename"):
+                pretrained_relations_filename = self.get_option(
+                    "relation_embedder.pretrain.model_filename"
+                )
+
+            def load_pretrained_model(
+                    pretrained_filename: str,
+            ) -> Optional[KgeModel]:
+                if pretrained_filename != "":
+                    self.config.log(
+                        f"Initializing with embeddings stored in "
+                        f"{pretrained_filename}"
+                    )
+                    checkpoint = load_checkpoint(pretrained_filename)
+                    return KgeModel.create_from(checkpoint)
+                return None
+
+            pretrained_entities_model = load_pretrained_model(
+                pretrained_entities_filename
+            )
+            if pretrained_entities_filename == pretrained_relations_filename:
+                pretrained_relations_model = pretrained_entities_model
+            else:
+                pretrained_relations_model = load_pretrained_model(
+                    pretrained_relations_filename
+                )
+            if pretrained_entities_model is not None:
+                if (
+                        pretrained_entities_model.get_s_embedder()
+                        != pretrained_entities_model.get_o_embedder()
+                ):
+                    raise ValueError(
+                        "Can only initialize with pre-trained models having "
+                        "identical subject and object embeddings."
+                    )
+                self._entity_embedder.init_pretrained(
+                    pretrained_entities_model.get_s_embedder()
+                )
+            if pretrained_relations_model is not None:
+                self._relation_embedder.init_pretrained(
+                    pretrained_relations_model.get_p_embedder()
+                )
+
+    @staticmethod
+    def _calc_embedding_layer_size(config, dataset):
+        if config.get(config.get("model") + ".create_eval"):
+            batch_size = config.get("eval.batch_size")
+            chunk_size = config.get("entity_ranking.chunk_size")
+            rank_against = config.get("entity_ranking.rank_against")
+            if rank_against > 0:
+                chunk_size = rank_against
+            elif chunk_size <= 0:
+                return dataset.num_entities()
+            return min(dataset.num_entities(), 2*batch_size+chunk_size)
+        if "distributed" not in config.get("train.type"):
+            return dataset.num_entities()
+        num_samples_s = config.get("negative_sampling.num_samples.s")
+        if config.get("negative_sampling.num_samples.o") == -1:
+            num_samples_o = config.get("negative_sampling.num_samples.s")
+        else:
+            num_samples_o = config.get("negative_sampling.num_samples.o")
+        batch_size = config.get("train.batch_size")
+
+        if config.get("negative_sampling.shared"):
+            embedding_layer_size = batch_size * 2 + num_samples_s + 1 + num_samples_o + 1
+        else:
+            embedding_layer_size = batch_size * 2 + int(
+                (num_samples_s + num_samples_o) * batch_size)
+        embedding_layer_size = min(embedding_layer_size,
+                                       dataset.num_entities())
+        return embedding_layer_size
+
     # overridden to also set self.model
     def _init_configuration(self, config: Config, configuration_key: Optional[str]):
         Configurable._init_configuration(self, config, configuration_key)
@@ -475,6 +617,9 @@ class KgeModel(KgeBase):
         dataset: Dataset,
         configuration_key: Optional[str] = None,
         init_for_load_only=False,
+        create_embedders=True,
+        parameter_client=None,
+        max_partition_entities=0,
     ) -> "KgeModel":
         """Factory method for model creation."""
         try:
@@ -495,6 +640,9 @@ class KgeModel(KgeBase):
                 dataset=dataset,
                 configuration_key=configuration_key,
                 init_for_load_only=init_for_load_only,
+                create_embedders=create_embedders,
+                parameter_client=parameter_client,
+                max_partition_entities=max_partition_entities,
             )
             model.to(config.get("job.device"))
             return model
@@ -555,6 +703,7 @@ class KgeModel(KgeBase):
         dataset: Optional[Dataset] = None,
         use_tmp_log_folder=True,
         new_config: Config = None,
+        parameter_client=None,
     ) -> "KgeModel":
         """Loads a model from a checkpoint file of a training job or a packaged model.
 
@@ -579,7 +728,7 @@ class KgeModel(KgeBase):
             if not config.log_folder or not os.path.exists(config.log_folder):
                 config.log_folder = "."
         dataset = Dataset.create_from(checkpoint, config, dataset, preload_data=False)
-        model = KgeModel.create(config, dataset, init_for_load_only=True)
+        model = KgeModel.create(config, dataset, init_for_load_only=True, parameter_client=parameter_client)
         model.load(checkpoint["model"])
         model.eval()
         return model
@@ -787,3 +936,7 @@ class KgeModel(KgeBase):
             sp_scores = self._scorer.score_emb(s, p, all_objects, combine="sp_")
             po_scores = self._scorer.score_emb(all_subjects, p, o, combine="_po")
         return torch.cat((sp_scores, po_scores), dim=1)
+
+    def push_back(self):
+        self._entity_embedder.push_back()
+        self._relation_embedder.push_back()

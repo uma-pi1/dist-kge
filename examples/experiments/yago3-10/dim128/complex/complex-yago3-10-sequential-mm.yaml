@@ -1,0 +1,78 @@
+complex:
+  entity_embedder:
+    dropout: -0.3128825817257166
+    regularize_weight: 1.0274165130442088e-15
+  relation_embedder:
+    dropout: 0.1540917595848441
+    regularize_weight: 2.934669571854759e-10
+dataset:
+  name: yago3-10
+entity_ranking:
+  chunk_size: 25000
+eval:
+  batch_size: 256
+import:
+- complex
+- distributed_model
+job:
+  device_pool:
+  - cuda:0
+  distributed:
+    num_partitions: 1
+    num_workers: 1
+    parameter_server: shared
+lookup_embedder:
+  dim: 128
+  initialize: uniform_
+  initialize_args:
+    normal_:
+      mean: 0.0
+      std: 0.036423597922559676
+    uniform_:
+      a: -0.4357536096219625
+    xavier_normal_:
+      gain: 1.0
+    xavier_uniform_:
+      gain: 1.0
+  regularize_args:
+    p: 3
+    weighted: true
+  sparse: true
+model: distributed_model
+modules:
+- kge.model
+- kge.model.embedder
+- kge.job
+negative_sampling:
+  implementation: batch
+  num_samples:
+    o: 8942
+    s: 8919
+  shared: true
+  shared_type: naive
+  with_replacement: false
+train:
+  auto_correct: true
+  batch_size: 1024
+  loss_arg: 1.0
+  lr_scheduler: ReduceLROnPlateau
+  lr_scheduler_args:
+    factor: 0.95
+    mode: max
+    patience: 5
+    threshold: 0.0001
+  max_epochs: 400
+  num_workers: 4
+  optimizer:
+    default:
+      args:
+        lr: 0.22584037828361303
+      type: dist_adagrad
+  type: distributed_negative_sampling
+valid:
+  early_stopping:
+    patience: 10
+    threshold:
+      epochs: 10
+      metric_value: 0.1
+

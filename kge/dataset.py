@@ -330,6 +330,66 @@ class Dataset(Configurable):
 
         return self._meta[key]
 
+    @staticmethod
+    def _load_list(
+            filename: str,
+            use_pickle=False,
+    ) -> np.ndarray:
+        if use_pickle:
+            pickle_filename = f"{filename}.pckl"
+            result = Dataset._pickle_load_if_uptodate(None, pickle_filename, filename)
+            if result is not None:
+                return result
+
+        partition_assignment = pd.read_csv(
+            filename,
+            header=None,
+            sep="\t",
+            dtype=np.long,
+        ).to_numpy()
+        if use_pickle:
+            Dataset._pickle_dump_atomic(partition_assignment, pickle_filename)
+        return partition_assignment
+
+    def load_entities_to_partitions(self, partition_type, num_partitions):
+        print("loading partitions")
+        return self._load_list(
+            os.path.join(
+                self.folder,
+                "partitions",
+                partition_type,
+                f"num_{num_partitions}",
+                "entity_to_partitions.del",
+            ),
+            use_pickle=self.config.get("dataset.pickle"),
+        )
+
+    def load_relations_to_partitions(self, partition_type, num_partitions):
+        print("loading partitions")
+        return self._load_list(
+            os.path.join(
+                self.folder,
+                "partitions",
+                partition_type,
+                f"num_{num_partitions}",
+                "relation_to_partitions.del",
+            ),
+            use_pickle=self.config.get("dataset.pickle"),
+        )
+
+    def load_train_partitions(self, partition_type, num_partitions):
+        print("loading partitions")
+        return self._load_list(
+            os.path.join(
+                self.folder,
+                "partitions",
+                partition_type,
+                f"num_{num_partitions}",
+                "train_assign_partitions.del",
+            ),
+            use_pickle=self.config.get("dataset.pickle"),
+        )
+
     def shallow_copy(self):
         """Returns a dataset that shares the underlying splits and indexes.
 

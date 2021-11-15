@@ -1,7 +1,7 @@
 import torch
 import numba
 import numpy as np
-from typing import Iterator, List, Tuple, Dict
+from typing import Iterator, List, Tuple, Dict, Optional
 
 
 class KvsAllIndex:
@@ -99,7 +99,8 @@ class KvsAllIndex:
             keys: np.ndarray,
             index_of_key: Dict[Tuple[int, int], int],
             values: np.ndarray,
-            values_offset: np.ndarray
+            values_offset: np.ndarray,
+            targets: Optional[np.array],
     ):
         """
         Looks up all values corresponding to keys and outputs them in a single tensor
@@ -114,6 +115,10 @@ class KvsAllIndex:
             the corresponding input position of the key in [:, 0]
 
         """
+        if targets is not None:
+            targets_set = set()
+            for i in range(len(targets)):
+                targets_set.add(targets[i])
         key_index = np.empty((len(keys)), dtype=np.int32)
         total_length = 0
         for i in range(len(keys)):
@@ -130,11 +135,19 @@ class KvsAllIndex:
             if key_index[i].item() < 0:
                 continue
             res = (values[values_offset[key_index[i]]:values_offset[key_index[i]+1]])
+            if targets is not None:
+                filtered_res = np.empty((len(res)), dtype=np.int32)
+                current_filter_index = 0
+                for j in range(len(res)):
+                    if res[j] in targets_set:
+                        filtered_res[current_filter_index] = res[j]
+                        current_filter_index += 1
+                res = filtered_res[:current_filter_index]
             len_res = len(res)
             result[current_index: current_index+len_res, 0] = i
             result[current_index: current_index + len_res, 1] = res
             current_index += len_res
-        return result
+        return result[:current_index]
 
     def __len__(self):
         return len(self._keys)
@@ -142,13 +155,13 @@ class KvsAllIndex:
     def get(self, key, default_return_value=None) -> torch.Tensor:
         return self.__getitem__(key, default_return_value)
 
-    def get_all(self, keys):
+    def get_all(self, keys, targets: Optional[np.array]):
         # keys need to be int32 otherwise numba won't find any matches in the dict
         keys = keys.int()
         return torch.from_numpy(
             self._get_all_impl(
                 keys.numpy(), self._index_of_key,
-                self._values.numpy(), self._values_offset.numpy()
+                self._values.numpy(), self._values_offset.numpy(), targets
             )
         )
 
@@ -393,3 +406,18 @@ def where_in(x, y, not_in=False):
     # setting njit(parallel=True) slows down the function
     list_y = set(y)
     return np.where(np.array([i in list_y for i in x]) != not_in)[0]
+
+@numba.njit
+def intersection(x, y):
+    """Retrieve the elements in x which are also in y.
+
+    x and y are assumed to be 1 dimensional arrays.
+
+    :params: not_in: if True, returns the indices of the of the elements in x
+    which are not in y.
+
+    """
+    # np.isin is not supported in numba. Also: "i in y" raises an error in numba
+    # setting njit(parallel=True) slows down the function
+    list_y = set(y)
+    return np.array([i for i in x if i in list_y])

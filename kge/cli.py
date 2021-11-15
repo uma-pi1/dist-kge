@@ -5,6 +5,14 @@ import os
 import sys
 import traceback
 import yaml
+import time
+import warnings
+import torch
+
+try:
+    import lapse
+except ImportError:
+    warnings.warn("Lapse could not be imported. Only parallel training possible.")
 
 from kge import Dataset
 from kge import Config
@@ -13,6 +21,7 @@ from kge.misc import get_git_revision_short_hash, kge_base_dir, is_number
 from kge.util.dump import add_dump_parsers, dump
 from kge.util.io import get_checkpoint_file, load_checkpoint
 from kge.util.package import package_model, add_package_parser
+from kge.distributed.funcs import create_and_run_distributed
 from kge.util.seed import seed_from_config
 
 
@@ -214,7 +223,7 @@ def main():
         ]:
             continue
         if value is not None:
-            if key == "search.device_pool":
+            if key == "search.device_pool" or key == "job.device_pool":
                 value = "".join(value).split(",")
             try:
                 if isinstance(config.get(key), bool):
@@ -245,6 +254,7 @@ def main():
         config.log("Using folder: {}".format(config.folder))
 
         # determine checkpoint to resume (if any)
+        checkpoint_file = None
         if hasattr(args, "checkpoint"):
             checkpoint_file = get_checkpoint_file(config, args.checkpoint)
 
@@ -266,23 +276,33 @@ def main():
             # load data
             dataset = Dataset.create(config)
 
-            # let's go
-            if args.command == "resume":
-                if checkpoint_file is not None:
-                    checkpoint = load_checkpoint(
-                        checkpoint_file, config.get("job.device")
-                    )
-                    job = Job.create_from(
-                        checkpoint, new_config=config, dataset=dataset
-                    )
+            checkpoint = None
+
+            if (
+                config.get("job.type") in ["train", "valid", "test", "eval"]
+                and "distributed" in config.get("model")
+            ):
+                create_and_run_distributed(config, dataset, checkpoint_file)
+            else:
+                # let's go
+                if args.command == "resume":
+                    if checkpoint_file is not None:
+                        checkpoint = load_checkpoint(
+                            checkpoint_file, config.get("job.device")
+                        )
+                        job = Job.create_from(
+                            checkpoint, new_config=config, dataset=dataset
+                        )
+                    else:
+                        job = Job.create(config, dataset)
+                        job.config.log(
+                            "No checkpoint found or specified, starting from scratch..."
+                        )
                 else:
                     job = Job.create(config, dataset)
-                    job.config.log(
-                        "No checkpoint found or specified, starting from scratch..."
-                    )
-            else:
-                job = Job.create(config, dataset)
-            job.run()
+                job.run()
+
+            # job.run()
     except BaseException:
         tb = traceback.format_exc()
         config.log(tb, echo=False)

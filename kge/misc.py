@@ -163,3 +163,22 @@ def round_to_points(round_points_to: List[int], to_be_rounded: int):
                 round_to_points.__name__
             )
         )
+
+
+def set_seeds(config, rank=0):
+    # set random seeds
+    import random
+    import torch
+    import numpy.random
+    if config.get("random_seed.python") > -1:
+        random.seed(config.get("random_seed.python") + rank)
+    else:
+        random.seed()
+    if config.get("random_seed.torch") > -1:
+        torch.manual_seed(config.get("random_seed.torch") + rank)
+    else:
+        torch.manual_seed(random.randint(0, 2**32))
+    if config.get("random_seed.numpy") > -1:
+        numpy.random.seed(config.get("random_seed.numpy") + rank)
+    else:
+        numpy.random.seed()

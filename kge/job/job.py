@@ -3,6 +3,7 @@ from __future__ import annotations
 from kge import Config, Dataset
 from kge.util import load_checkpoint
 import uuid
+import torch
 
 from kge.misc import get_git_revision_short_hash
 import os
@@ -69,7 +70,12 @@ class Job:
 
     @staticmethod
     def create(
-        config: Config, dataset: Optional[Dataset] = None, parent_job=None, model=None
+        config: Config, dataset: Optional[Dataset] = None,
+        parent_job=None,
+        model=None,
+        parameter_client=None,
+        work_scheduler_client=None,
+        init_for_load_only=False
     ):
         "Create a new job."
         from kge.job import TrainingJob, EvaluationJob, SearchJob
@@ -80,13 +86,18 @@ class Job:
         job_type = config.get("job.type")
         if job_type == "train":
             return TrainingJob.create(
-                config, dataset, parent_job=parent_job, model=model
+                config,
+                dataset,
+                parent_job=parent_job,
+                model=model,
+                parameter_client=parameter_client,
+                init_for_load_only=init_for_load_only
             )
         elif job_type == "search":
             return SearchJob.create(config, dataset, parent_job=parent_job)
         elif job_type == "eval":
             return EvaluationJob.create(
-                config, dataset, parent_job=parent_job, model=model
+                config, dataset, parent_job=parent_job, model=model, parameter_client=parameter_client, work_scheduler_client=work_scheduler_client
             )
         else:
             raise ValueError("unknown job type")
@@ -98,6 +109,7 @@ class Job:
         new_config: Config = None,
         dataset: Dataset = None,
         parent_job=None,
+        parameter_client=None
     ) -> Job:
         """
         Creates a Job based on a checkpoint
@@ -117,7 +129,7 @@ class Job:
         # search jobs don't have a model
         if "model" in checkpoint and checkpoint["model"] is not None:
             model = KgeModel.create_from(
-                checkpoint, new_config=new_config, dataset=dataset
+                checkpoint, new_config=new_config, dataset=dataset, parameter_client=parameter_client
             )
             config = model.config
             dataset = model.dataset
@@ -126,7 +138,7 @@ class Job:
             if new_config:
                 config.load_config(new_config)
             dataset = Dataset.create_from(checkpoint, config, dataset)
-        job = Job.create(config, dataset, parent_job, model)
+        job = Job.create(config, dataset, parent_job, model, parameter_client=parameter_client, init_for_load_only=True)
         job._load(checkpoint)
         job.config.log("Loaded checkpoint from {}...".format(checkpoint["file"]))
         return job
@@ -182,12 +194,12 @@ class Job:
 class TrainingOrEvaluationJob(Job):
     """Abstract superclass for training and eval jobs."""
 
-    def __init__(self, config: Config, dataset: Dataset, parent_job: "Job" = None):
+    def __init__(self, config: Config, dataset: Dataset, parent_job: "Job" = None, parameter_client=None):
         super().__init__(config, dataset, parent_job)
 
         # defines various hooks
         # Signature: job
-        self.pre_batch_hooks: List[Callable[[Job], Any]] = []
+        self.pre_batch_hooks: List[Callable[[Job, int], Any]] = []
         self.post_batch_hooks: List[Callable[[Job], Any]] = []
         self.pre_epoch_hooks: List[Callable[[Job], Any]] = []
         self.post_epoch_hooks: List[Callable[[Job], Any]] = []
@@ -197,3 +209,42 @@ class TrainingOrEvaluationJob(Job):
         # modified by the hooks defined above. The traces are logged only after the
         # corresponding hooks have been executed. The traces are then cleared.
         self.current_trace: Dict[str, Dict[str, Any]] = {"batch": None, "epoch": None}
+        self.parameter_client = parameter_client
+
+    def load_distributed(self, checkpoint_name):
+        """
+        Separate function for loading distributed checkpoints.
+        The main worker iterates over all checkpoints in the dir loads all of them and
+        pushes them to the parameter server.
+        Args:
+            checkpoint_name: Path to the checkpoint
+
+        Returns:
+            None
+        """
+        from kge.distributed.misc import get_min_rank
+        self.parameter_client.barrier()
+        if self.model is None:
+            from kge.model import KgeModel
+            self.model = KgeModel.create(
+                config=self.config, dataset=self.dataset,
+                parameter_client=self.parameter_client
+            )
+        if self.parameter_client.rank == get_min_rank(self.config):
+            checkpoint_name, file_ending = checkpoint_name.rsplit(".", 1)
+            entities_dir = checkpoint_name + "_entities"
+            entities_ps_offset = self.model.get_s_embedder().lapse_offset
+            for file in os.listdir(entities_dir):
+                entity_start, entity_end = (
+                    os.path.basename(file).split(".")[0].split("-")
+                )
+                push_tensor = torch.load(os.path.join(entities_dir, file))
+                entity_ids = torch.arange(
+                    int(entity_start), int(entity_end), dtype=torch.long
+                )
+                self.parameter_client.push(entity_ids + entities_ps_offset, push_tensor)
+            relations_ps_offset = self.model.get_p_embedder().lapse_offset
+            push_tensor = torch.load(f"{checkpoint_name}_relations.{file_ending}")
+            relation_ids = torch.arange(self.dataset.num_relations(), dtype=torch.long)
+            self.parameter_client.push(relation_ids + relations_ps_offset, push_tensor)
+        self.parameter_client.barrier()

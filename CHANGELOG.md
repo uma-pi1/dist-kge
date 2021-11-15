@@ -11,6 +11,10 @@
 - PR [#164](https://github.com/uma-pi1/kge/pull/164): Allow to easily add custom training/evaluation/search jobs
 - PR [#159](https://github.com/uma-pi1/kge/pull/159): Add a plugin mechanism (thanks @sfschouten)
 - PR [#157](https://github.com/uma-pi1/kge/pull/157): Add CoDEx datasets and pretrained models (thanks @tsafavi)
+- [aa78e39](https://github.com/uma-pi1/kge/commits/aa78e391fbb46a604f2a5c0effe948def99aa16c), 
+[a705879](https://github.com/uma-pi1/kge/commits/a705879b8ec1fc84676742f654b77be8693db5c7), 
+[9099a1b](https://github.com/uma-pi1/kge/commits/9099a1b8b23cf0777ebe0b1c7681231f17067692): 
+Support ranking against k uniformly drawn negatives in entity ranking
 
 #### November 2020
 - PR [#155](https://github.com/uma-pi1/kge/pull/155): Faster reading of triple files

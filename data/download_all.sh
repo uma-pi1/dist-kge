@@ -307,3 +307,13 @@ else
 fi
 
 
+# freebase
+if [ ! -d "$BASEDIR/freebase" ]; then
+    echo Downloading freebase
+    cd $BASEDIR
+    curl -O http://web.informatik.uni-mannheim.de/pi1/kge-datasets/freebase.tar.gz
+    tar xvf freebase.tar.gz
+else
+    echo freebase already present
+fi
+# freebase is already preprocessed, would take too long otherwise

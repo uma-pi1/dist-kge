@@ -494,11 +494,16 @@ class Config:
     def checkpoint_file(self, cpt_id: Union[str, int]) -> str:
         "Return path of checkpoint file for given checkpoint id"
         from kge.misc import is_number
+        folder = self.folder
+        # todo: find a better way to go into root dir to store checkpoints in
+        #  distributed setup
+        if "worker" in os.path.basename(folder):
+            folder = os.path.dirname(folder)
 
         if is_number(cpt_id, int):
-            return os.path.join(self.folder, "checkpoint_{:05d}.pt".format(int(cpt_id)))
+            return os.path.join(folder, "checkpoint_{:05d}.pt".format(int(cpt_id)))
         else:
-            return os.path.join(self.folder, "checkpoint_{}.pt".format(cpt_id))
+            return os.path.join(folder, "checkpoint_{}.pt".format(cpt_id))
 
     def last_checkpoint_number(self) -> Optional[int]:
         "Return number (epoch) of latest checkpoint"
@@ -745,6 +750,37 @@ def _process_deprecated_options(options: Dict[str, Any]):
                 if rename_value(key, old_value, new_value):
                     renamed_keys.add(key)
         return renamed_keys
+
+    # 03.11.21
+    delete_key_with_value("job.distributed.load_batch", True)
+    rename_key(
+        "job.distributed.stratification.entities_needed_only",
+        "job.distributed.stratification.active_only"
+    )
+
+    # 19.10.21
+    rename_key(
+        "job.distributed.combine_mirror_blocks",
+        "job.distributed.stratification.combine_mirror"
+    )
+
+    # 21.04.21
+    delete_key_with_value("num_workers", 1)
+    delete_key_with_value("job.distributed.scheduling_order", "random")
+
+    # 12.04.21
+    delete_key_with_value("complex.create_eval", False)
+    delete_key_with_value("rotate.create_eval", False)
+
+    # 01.04.21
+    delete_key_with_value("complex.create_complete", True)
+    delete_key_with_value("rotate.create_complete", True)
+
+    # 25.01.21
+    rename_value("job.distributed.partition_type", "2d_block_partition", "stratification")
+    rename_value("job.distributed.partition_type", "metis_partition", "graph-cut")
+    rename_value("job.distributed.partition_type", "relation_partition", "relation")
+    rename_value("job.distributed.partition_type", "random_partition", "random")
 
     # 15.12.20
     rename_value("search.type", "ax", "ax_search")

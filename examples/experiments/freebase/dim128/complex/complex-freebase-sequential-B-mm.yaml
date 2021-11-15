@@ -1,0 +1,99 @@
+complex:
+  entity_embedder:
+    dropout: -0.4202541569247842
+    regularize_weight: 0.0016039710378808378
+  relation_embedder:
+    dropout: -0.4545119274407625
+    regularize_weight: 9.709504921691681e-20
+dataset:
+  files:
+    test_small:
+      filename: test_small.del
+      type: triples
+    test_tiny:
+      filename: test_tiny.del
+      type: triples
+    test_tiny_tiny:
+      filename: test_tiny_tiny.del
+      type: triples
+    valid_small:
+      filename: valid_small.del
+      type: triples
+    valid_tiny:
+      filename: valid_tiny.del
+      type: triples
+    valid_tiny_tiny:
+      filename: valid_tiny_tiny.del
+      type: triples
+  name: freebase
+entity_ranking:
+  chunk_size: 15000
+eval:
+  batch_size: 50
+  num_workers: 4
+import:
+- complex
+- distributed_model
+job:
+  device_pool:
+  - cuda:0
+  distributed:
+    num_partitions: 1
+    num_workers: 1
+    parameter_server: shared
+lookup_embedder:
+  dim: 128
+  initialize: xavier_uniform_
+  initialize_args:
+    normal_:
+      mean: 0.0
+      std: 0.7247714657764338
+    uniform_:
+      a: -0.7264893817037996
+    xavier_normal_:
+      gain: 1.0
+    xavier_uniform_:
+      gain: 1.0
+  regularize_args:
+    weighted: true
+  sparse: true
+model: distributed_model
+modules:
+- kge.model.embedder
+- kge.job
+- kge.model
+negative_sampling:
+  implementation: batch
+  num_samples:
+    o: 400
+    s: 191
+  shared: true
+  shared_type: naive
+  combined: true
+train:
+  auto_correct: true
+  batch_size: 1024
+  loss_arg: .nan
+  lr_scheduler: ReduceLROnPlateau
+  lr_scheduler_args:
+    factor: 0.95
+    mode: max
+    patience: 9
+    threshold: 0.0001
+  max_epochs: 10
+  num_workers: 4
+  optimizer:
+    default:
+      args:
+        lr: 0.16755594652229405
+      type: dist_rowadagrad
+  type: distributed_negative_sampling
+valid:
+  early_stopping:
+    patience: 10
+    threshold:
+      epochs: 50
+      metric_value: 0.05
+  every: 10
+  split: valid_tiny_tiny
+

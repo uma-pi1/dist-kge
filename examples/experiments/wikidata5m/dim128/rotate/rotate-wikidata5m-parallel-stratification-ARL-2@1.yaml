@@ -1,0 +1,86 @@
+dataset:
+  name: wikidata5m
+entity_ranking:
+  chunk_size: 5000
+eval:
+  batch_size: 256
+import:
+- rotate
+- distributed_model
+distributed_model:
+  base_model:
+    type: rotate
+job:
+  device_pool:
+  - cuda:0
+  - cuda:1
+  distributed:
+    entity_sync_level: partition
+    num_partitions: 8
+    num_workers: 4
+    parameter_server: shared
+    partition_type: stratification
+    combine_mirror_blocks: False
+lookup_embedder:
+  dim: 128
+  initialize: xavier_uniform_
+  initialize_args:
+    normal_:
+      mean: 0.0
+      std: 3.0258816720414108e-05
+    uniform_:
+      a: -0.5471612330226786
+    xavier_normal_:
+      gain: 1.0
+    xavier_uniform_:
+      gain: 1.0
+  regularize: ''
+  regularize_args:
+    weighted: true
+  sparse: true
+model: distributed_model
+modules:
+- kge.model.embedder
+- kge.model
+- kge.job
+negative_sampling:
+  implementation: batch
+  num_samples:
+    o: 905
+    s: 878
+  sampling_type: pooled
+  shared: true
+  shared_type: naive
+rotate:
+  entity_embedder:
+    dropout: 0.2189469924196601
+    regularize_weight: 0.022287069546013984
+  relation_embedder:
+    dropout: -0.3986804271116853
+    regularize_weight: 2.605672850011217e-05
+search:
+  on_error: continue
+train:
+  auto_correct: true
+  batch_size: 512
+  loss_arg: 1.0
+  lr_scheduler: ReduceLROnPlateau
+  lr_scheduler_args:
+    factor: 0.95
+    mode: max
+    patience: 1
+    threshold: 0.0001
+  max_epochs: 300
+  num_workers: 4
+  optimizer:
+    default:
+      args:
+        lr: 0.10233579996730208
+      type: dist_adagrad
+  type: distributed_negative_sampling
+valid:
+  early_stopping:
+    threshold:
+      epochs: 10
+      metric_value: 0.1
+

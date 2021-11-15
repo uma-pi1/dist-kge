@@ -1,0 +1,73 @@
+complex:
+  entity_embedder:
+    dropout: -0.48186513222754
+    regularize_weight: 5.400494865507292e-15
+  relation_embedder:
+    dropout: -0.36594828963279724
+    regularize_weight: 5.774056732336826e-13
+dataset:
+  name: fb15k
+eval:
+  batch_size: 2048
+  trace_level: epoch
+import:
+- complex
+- distributed_model
+job:
+  device_pool:
+  - cuda:0
+  - cuda:1
+  distributed:
+    num_partitions: 4
+    num_workers: 4
+    parameter_server: shared
+lookup_embedder:
+  dim: 400
+  initialize_args:
+    normal_:
+      mean: 0.0
+      std: 0.04205683983495253
+    uniform_:
+      a: -0.31932933322966095
+    xavier_normal_:
+      gain: 1.0
+    xavier_uniform_:
+      gain: 1.0
+  regularize: ''
+  regularize_args:
+    weighted: true
+  sparse: true
+model: distributed_model
+negative_sampling:
+  implementation: batch
+  num_samples:
+    o: 57
+    p: -1
+    s: 232
+  shared: true
+  shared_type: naive
+train:
+  auto_correct: true
+  batch_size: 1024
+  loss_arg: 1.0
+  lr_scheduler_args:
+    factor: 0.95
+    mode: max
+    patience: 7
+    threshold: 0.0001
+  max_epochs: 10
+  num_workers: 4
+  optimizer:
+    default:
+      args:
+        lr: 0.0542943134097019
+      type: dist_adagrad
+  type: distributed_negative_sampling
+valid:
+  every: 5
+  early_stopping:
+    patience: 10
+    threshold:
+      epochs: 50
+      metric_value: 0.05
+

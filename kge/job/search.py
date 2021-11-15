@@ -125,23 +125,6 @@ def _run_train_job(sicnk, device=None):
                 train_job_config.get("job.device"),
             )
         )
-        checkpoint_file = get_checkpoint_file(train_job_config)
-        if checkpoint_file is not None:
-            checkpoint = load_checkpoint(
-                checkpoint_file, train_job_config.get("job.device")
-            )
-            job = Job.create_from(
-                checkpoint=checkpoint,
-                new_config=train_job_config,
-                dataset=search_job.dataset,
-                parent_job=search_job,
-            )
-        else:
-            job = Job.create(
-                config=train_job_config,
-                dataset=search_job.dataset,
-                parent_job=search_job,
-            )
 
         # process the trace entries to far (in case of a resumed job)
         metric_name = search_job.config.get("valid.metric")
@@ -172,30 +155,62 @@ def _run_train_job(sicnk, device=None):
             search_job.config.trace(**trace_entry)
             valid_trace.append(trace_entry)
 
-        for trace_entry in job.valid_trace:
-            copy_to_search_trace(None, trace_entry)
-
-        # run the job (adding new trace entries as we go)
-        # TODO make this less hacky (easier once integrated into SearchJob)
-        from kge.job import ManualSearchJob
-
-        if not isinstance(search_job, ManualSearchJob) or search_job.config.get(
-            "manual_search.run"
-        ):
-            job.post_valid_hooks.append(copy_to_search_trace)
-            job.run()
-        else:
-            search_job.config.log(
-                "Skipping running of training job as requested by user."
+        checkpoint_file = get_checkpoint_file(train_job_config)
+        if checkpoint_file is not None:
+            checkpoint = load_checkpoint(
+                checkpoint_file, train_job_config.get("job.device")
             )
-            return (train_job_index, None, None)
+            job = Job.create_from(
+                checkpoint=checkpoint,
+                new_config=train_job_config,
+                dataset=search_job.dataset,
+                parent_job=search_job,
+            )
+            for trace_entry in job.valid_trace:
+                copy_to_search_trace(None, trace_entry)
+        else:
+            if "distributed" in train_job_config.get("model"):
+                from kge.distributed.funcs import create_and_run_distributed
+                valid_trace = create_and_run_distributed(config=train_job_config, dataset=search_job.dataset)
+            else:
+                job = Job.create(
+                    config=train_job_config,
+                    dataset=search_job.dataset,
+                    parent_job=search_job,
+                )
+
+        # if train_job_config.get("job.distributed.num_workers") <= 0:
+        if "distributed" not in train_job_config.get("model"):
+            valid_trace = []
+
+            # run the job (adding new trace entries as we go)
+            # TODO make this less hacky (easier once integrated into SearchJob)
+            from kge.job import ManualSearchJob
+
+            if not isinstance(search_job, ManualSearchJob) or search_job.config.get(
+                "manual_search.run"
+            ):
+                job.post_valid_hooks.append(copy_to_search_trace)
+                job.run()
+            else:
+                search_job.config.log(
+                    "Skipping running of training job as requested by user."
+                )
+                return (train_job_index, None, None)
 
         # analyze the result
         search_job.config.log("Best result in this training job:")
         best = None
         best_metric = None
         for trace_entry in valid_trace:
-            metric = trace_entry["metric_value"]
+            if train_job_config.get("job.distributed.num_workers") <= 0:
+                metric = trace_entry["metric_value"]
+            else:
+                # we can not this via post valid hook in distributed setting
+                # can not pickle function copy_to_search_trace
+                metric = Trace.get_metric(trace_entry, metric_name)
+                trace_entry["metric_value"] = metric
+                trace_entry["metric_name"] = metric_name
             if not best or Metric(search_job).better(metric, best_metric):
                 best = trace_entry
                 best_metric = metric

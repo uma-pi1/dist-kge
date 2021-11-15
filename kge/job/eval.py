@@ -11,8 +11,8 @@ from typing import Dict, Optional, Any
 
 
 class EvaluationJob(TrainingOrEvaluationJob):
-    def __init__(self, config: Config, dataset: Dataset, parent_job, model):
-        super().__init__(config, dataset, parent_job)
+    def __init__(self, config: Config, dataset: Dataset, parent_job, model, parameter_client=None):
+        super().__init__(config, dataset, parent_job, parameter_client=parameter_client)
 
         self.config = config
         self.dataset = dataset
@@ -33,7 +33,7 @@ class EvaluationJob(TrainingOrEvaluationJob):
                 f(self)
 
     @staticmethod
-    def create(config, dataset, parent_job=None, model=None):
+    def create(config, dataset, parent_job=None, model=None, parameter_client=None, work_scheduler_client=None):
         """Factory method to create an evaluation job """
 
         eval_type = config.get("eval.type")
@@ -45,6 +45,8 @@ class EvaluationJob(TrainingOrEvaluationJob):
             dataset,
             parent_job=parent_job,
             model=model,
+            parameter_client=parameter_client,
+            work_scheduler_client=work_scheduler_client,
         )
 
     def _prepare(self):

@@ -29,6 +29,47 @@ job:
 
   # Main device to use for this job (e.g., 'cpu', 'cuda', 'cuda:0')
   device: 'cuda'
+  device_pool: [ ]
+  distributed:
+    num_workers: 1
+    num_workers_machine: -1  # number of workers on this machine. -1 equals num_workers
+    # number of already initialized workers
+    # if -1 it assumes the same amount of workers at each machine and calculates
+    # already_init_workers = machine_id * num_workers_machine
+    already_init_workers: -1
+    num_eval_workers: 1  # number of workers to run the evaluation job
+    num_machines: 1
+    machine_id: 0
+    num_threads_per_process: 2  # omp threads per process
+    parameter_server: 'lapse'  # options: lapse, torch
+    master_ip: '127.0.0.1'
+    master_port: 8888
+    lapse_port: 9091
+    gloo_socket_ifname: 'lo'  # 'eno1np0' get possible interfaces by echo /sys/class/net/*, corresponding ipaddresses with ip addr
+    num_partitions: 2
+    partition_type: 'random'  # random, relation, stratification, graph-cut
+    entity_sync_level: 'batch'  # batch, partition
+    relation_sync_level: 'batch'  # batch, partition
+    entity_async_write_back: True # write to parameter server asynchronous
+    relation_async_write_back: True  # write to parameter server asynchronous
+    entity_localize: False
+    relation_localize: False
+    entity_pre_pull: 0  # number of entity batches to prepull: 1 - from ps, 2 - to gpu
+    relation_pre_pull: 0  # number of relation batches to prepull: 1 - from ps, 2 - to gpu
+    repartition_epoch: True  # currently only works with stratification and random
+    pre_localize_partition: False
+    pre_localize_batch: False # pre localize entities in batch one batch ahead
+
+    stratification:
+      # not all the entities in a strata are used ("active") for the positives
+      # this option allows to load only active entities and only sample negatives
+      # from this subset if local sampling is used
+      active_only: True
+      # combine mirrored partitions to reduce number of partitions
+      #  e.g.: (1,2) and (2,1)
+      #  diagonals lying next to each other will be combined
+      #  e.g.: (0,0) and (1,1)
+      combine_mirror: True
 
 # The seeds of the PRNGs can be set manually for (increased) reproducibility.
 # Use -1 to disable explicit seeding.
@@ -147,6 +188,7 @@ import: []
 model: ''
 
 
+
 ## TRAINING ####################################################################
 
 # Options of training jobs (job.type=="train")
@@ -232,6 +274,14 @@ train:
       # Additional arguments for the optimizer. Arbitrary key-value pairs can be
       # added here and will be passed along to the optimizer. E.g., use entry lr:0.1
       # to set the learning rate to 0.1.
+      args:
+        +++: +++
+    entity:
+      regex: .*_entity_embedder.*
+      args:
+        +++: +++
+    relation:
+      regex: .*_relation_embedder.*
       args:
         +++: +++
 
@@ -333,6 +383,8 @@ negative_sampling:
   #              of entities/relations
   # - frequency: samples entities/relations for corruption based on their relative
   #              frequency in the corresponding slot in the training data
+  # - batch    : samples entities/relations for corruption from the corresponding slot
+  #              inside the batch
   sampling_type: uniform
 
   # Options for sampling type frequency (negative_sampling.sampling_type=="frequency")
@@ -385,6 +437,22 @@ negative_sampling:
   # sampling is currently only supported for shared sampling.
   with_replacement: True
 
+  # combine sampler with a second sampler
+  # configuration for the second sampler is defined in combined_options
+  combined: False
+
+  # sampler options for the second sampler
+  # options from sampler 1 used for everything that can not be defined here
+  combined_options:
+    # Negative sampler to use
+    sampling_type: batch
+    # Percentage of negative samples to use in the second sampler
+    negatives_percentage: 0.5
+    # Type of shared sampling implementation
+    shared_type: naive
+    # Whether sampling should be performed with replacement
+    with_replacement: True
+
   # Implementation to use for the negative sampling job. Possible values are:
   # - triple: Scores every positive and negative triple in the batch separately.
   # - all   : Scores against all possible targets and filters relevant scores
@@ -399,6 +467,9 @@ negative_sampling:
   # 'triple' (e.g., for TransE or RotatE in the current implementation). 'auto'
   # tries to do just this heuristically.
   implementation: auto
+
+distributed_negative_sampling:
+  class_name: TrainingJobNegativeSamplingDistributed
 
 ## VALIDATION AND EVALUATION ###################################################
 
@@ -492,6 +563,18 @@ entity_ranking:
   # mean_reciprocal_rank_filtered_with_test.
   filter_with_test: True
 
+  # If set, use a sample of entities instead of ranking against all entities.
+  # In more detail, for each batch, this many ranking targets will be sampled uniformly
+  # and without replacement from the set of entities. Since this changes all metrics,
+  # their name is changed to {metric_name}_against_{rank_against}.
+  rank_against: -1  # default: off (=rank against all entities)
+
+  rank_against_options:
+    sampling_type: "uniform"
+    combined: False
+    combined_options:
+      sampling_type: "frequency"
+
   # How to handle cases with ties between the correct answer and other answers, e.g.,
   #  Query: (s, p, ?).
   #  Answers and score: a:10, b:10, c:10, d:11, e:9
@@ -517,6 +600,12 @@ entity_ranking:
   # memory consumption but may increase runtime. Useful when there are many
   # entities and/or memory-intensive models are used.
   chunk_size: -1                  # default: no chunking
+
+  # A sparse labels tensor is held on device and used for filtering.
+  # On really large datasets (>100,000,000 triples) even this sparse tensor can take
+  # up up to some GB.
+  # To allow evaluating on these large graphs, labels can be stored on cpu
+  labels_on_cpu: False
 
   # Metrics are always computed over the entire evaluation data. Optionally,
   # certain more specific metrics can be computed in addition.

@@ -1,34 +1,27 @@
-# <img src="docs/source/images/logo/libkge-header-2880.png" alt="LibKGE: A knowledge graph embedding library" width="80%">
+# Dist-KGE: A knowledge graph embedding library for multi-GPU and multi-machine training
 
-LibKGE is a PyTorch-based library for efficient training, evaluation, and
-hyperparameter optimization of [knowledge graph
-embeddings](https://ieeexplore.ieee.org/document/8047276) (KGE). It is highly
-configurable, easy to use, and extensible. Other KGE frameworks are [listed
-below](#other-kge-frameworks).
 
-The key goal of LibKGE is to foster *reproducible research* into (as well as
-meaningful comparisons between) KGE models and training methods. As we argue in
-our [ICLR 2020 paper](https://github.com/uma-pi1/kge-iclr20)
-(see [video](https://iclr.cc/virtual_2020/poster_BkxSmlBFvr.html)), the choice
-of training strategy and hyperparameters are very influential on model performance,
-often more so than the model class itself. LibKGE aims to provide *clean
-implementations* of training, hyperparameter optimization, and evaluation
-strategies that can be used with any model. Every potential knob or heuristic
-implemented in the framework is exposed explicitly via *well-documented*
-configuration files (e.g., see [here](kge/config-default.yaml) and
-[here](kge/model/embedder/lookup_embedder.yaml)). LibKGE also provides the most
-common KGE models and new ones can be easily added (contributions welcome!).
+This is the code and configuration accompanying the paper "Parallel Training of Knowledge Graph Embedding Models: A Comparison of Techniques".
+The code extends the knowledge graph embedding library [LibKGE](https://github.com/uma-pi1/kge).
+For documentation on LibKGE refer to LibKGE repository.
+We provide the hyper-parameter settings for the experiments in their corresponding configuration files.
 
-For link prediction tasks, rule-based systems such as
-[AnyBURL](http://web.informatik.uni-mannheim.de/AnyBURL/) are a competitive
-alternative to KGE.
+
+## Table of contents
+
+1. [Quick start](#quick-start)
+2. [Dataset preparation for parallel training](#dataset-preparation-for-parallel-training)
+3. [Single Machine Multi-GPU Training](#single-machine-multi-gpu-training)
+4. [Multi-GPU Multi-Machine Training](#multi-gpu-multi-machine-training)
+5. [Folder structure of experiment results](#folder-structure-of-experiment-results)
+6. [Results and Configurations](#results-and-configurations)
 
 ## Quick start
 
 ```sh
 # retrieve and install project in development mode
-git clone https://github.com/uma-pi1/kge.git
-cd kge
+git clone https://github.com/AdrianKs/dist-kge.git
+cd dist-kge
 pip install -e .
 
 # download and preprocess datasets
@@ -40,512 +33,255 @@ cd ..
 kge start examples/toy-complex-train.yaml --job.device cpu
 
 ```
-
-## Table of contents
-
-1. [Features](#features)
-2. [Results and pretrained models](#results-and-pretrained-models)
-3. [Using LibKGE](#using-libkge)
-4. [Currently supported KGE models](#currently-supported-kge-models)
-6. [Extending LibKGE](#extending-libkge)
-6. [Known issues](#known-issues)
-7. [Changelog](CHANGELOG.md)
-8. [Other KGE frameworks](#other-kge-frameworks)
-9. [How to cite](#how-to-cite)
-
-## Features
-
- - **Training**
-   - Training types: negative sampling, 1vsAll, KvsAll
-   - Losses: binary cross entropy (BCE), Kullback-Leibler divergence (KL),
-     margin ranking (MR), squared error (SE)
-   - All optimizers and learning rate schedulers of PyTorch supported and can be
-     chosen individually for different parameters (e.g., different for entity
-     and for relation embeddings)
-   - Learning rate warmup
-   - Early stopping
-   - Checkpointing
-   - Stop (e.g., via `Ctrl-C`) and resume at any time
-   - Automatic memory management to support large batch sizes (see config key `train.subbatch_auto_tune`)
- - **Hyperparameter tuning**
-   - Grid search, manual search, quasi-random search (using
-     [Ax](https://ax.dev/)), Bayesian optimization (using [Ax](https://ax.dev/))
-   - Highly parallelizable (multiple CPUs/GPUs on single machine)
-   - Stop and resume at any time
- - **Evaluation**
-   - Entity ranking metrics: Mean Reciprocal Rank (MRR), HITS@k with/without filtering
-   - Drill-down by: relation type, relation frequency, head or tail
- - **Extensive logging and tracing**
-   - Detailed progress information about training, hyper-parameter tuning, and evaluation 
-     is recorded in machine readable formats
-   - Quick export of all/selected parts of the traced data into CSV or YAML files to 
-     facilitate analysis
- - **KGE models**
-   - All models can be used with or without reciprocal relations
-   - [RESCAL](http://www.icml-2011.org/papers/438_icmlpaper.pdf) ([code](kge/model/rescal.py), [config](kge/model/rescal.yaml))
-   - [TransE](https://papers.nips.cc/paper/5071-translating-embeddings-for-modeling-multi-relational-data) ([code](kge/model/transe.py), [config](kge/model/transe.yaml))
-   - [TransH](https://ojs.aaai.org/index.php/AAAI/article/view/8870) ([code](kge/model/transh.py), [config](kge/model/transh.yaml))
-   - [DistMult](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/ICLR2015_updated.pdf) ([code](kge/model/distmult.py), [config](kge/model/distmult.yaml))
-   - [ComplEx](http://proceedings.mlr.press/v48/trouillon16.pdf) ([code](kge/model/complex.py), [config](kge/model/complex.yaml))
-   - [ConvE](https://arxiv.org/abs/1707.01476)  ([code](kge/model/conve.py), [config](kge/model/conve.yaml))
-   - [RelationalTucker3](https://arxiv.org/abs/1902.00898)/[TuckER](https://arxiv.org/abs/1901.09590) ([code](kge/model/relational_tucker3.py), [config](kge/model/relational_tucker3.yaml))
-   - [CP](https://arxiv.org/abs/1806.07297) ([code](kge/model/cp.py), [config](kge/model/cp.yaml))
-   - [SimplE](https://arxiv.org/abs/1802.04868) ([code](kge/model/simple.py), [config](kge/model/simple.yaml))
-   - [RotatE](https://arxiv.org/abs/1902.10197) ([code](kge/model/rotate.py), [config](kge/model/rotate.yaml))
-   - [Transformer ("No context" model)](https://arxiv.org/abs/2008.12813) ([code](kge/model/transformer.py), [config](kge/model/transformer.yaml))
- - **Embedders**
-   - Lookup embedder ([code](kge/model/embedder/lookup_embedder.py), [config](kge/model/embedder/lookup_embedder.yaml))
-   - Projection embedder ([code](kge/model/embedder/projection_embedder.py), [config](kge/model/embedder/projection_embedder.yaml))
+This example will train on a toy dataset in a sequential setup on CPU
 
 
-## Results and pretrained models
+## Dataset preparation for parallel training
+**NOTE: Freebase already comes with multiple partition settings to save preprocessing time**
 
-We list some example results (filtered MRR and HITS@k on test data) obtained with
-LibKGE below. These results are obtained by running automatic hyperparameter
-search as described [here](https://github.com/uma-pi1/kge-iclr20). 
+To partition the data run the following commands (you only need to do this once)
 
-These results are not necessarily the best results that can be achieved using LibKGE, 
-but they are comparable in that a common experimental setup (and equal amount of work)
-has been used for hyperparameter optimization for each model. Since we use **filtered MRR 
-for model selection**, our results may not be indicative of the achievable model performance 
-for other validation metrics (such as HITS@10, which has been used for model selection 
-elsewhere). 
+**Random Partitioning**
 
-We report performance numbers on the entire test set, **including the
-triples that contain entities not seen during training**. This is not done
-consistently throughout existing KGE implementations: some frameworks remove
-unseen entities from the test set, which leads to a perceived increase in
-performance (e.g., roughly add +3pp to our WN18RR MRR numbers for this method of
-evaluation).
+For random partitioning no further preparation is needed.
 
-We also provide pretrained models for these results. Each pretrained model is
-given in the form of a LibKGE checkpoint, which contains the model as well as
-additional information (such as the configuration being used). See the
-documentation below on how to use checkpoints.
+**Relation Partitioning**
+```sh
+cd data
+python partition_relation.py <dataset-name> -n <num-partitions>
+cd ..
+```
 
-#### FB15K-237 (Freebase)
+**Stratification**
+```sh
+cd data 
+python partition_stratification.py <dataset-name> -n <num-partitions>
+cd ..
+```
 
-|                                                                                                       |   MRR | Hits@1 | Hits@3 | Hits@10 |                                                                                      Config file |                                                                              Pretrained model |
-|-------------------------------------------------------------------------------------------------------|------:|-------:|-------:|--------:|-------------------------------------------------------------------------------------------------:|----------------------------------------------------------------------------------------------:|
-| [RESCAL](http://www.icml-2011.org/papers/438_icmlpaper.pdf)                                           | 0.356 |  0.263 |  0.393 |   0.541 |   [config.yaml](http://web.informatik.uni-mannheim.de/pi1/iclr2020-models/fb15k-237-rescal.yaml) |    [1vsAll-kl](http://web.informatik.uni-mannheim.de/pi1/iclr2020-models/fb15k-237-rescal.pt) |
-| [TransE](https://papers.nips.cc/paper/5071-translating-embeddings-for-modeling-multi-relational-data) | 0.313 |  0.221 |  0.347 |   0.497 |   [config.yaml](http://web.informatik.uni-mannheim.de/pi1/iclr2020-models/fb15k-237-transe.yaml) |   [NegSamp-kl](http://web.informatik.uni-mannheim.de/pi1/iclr2020-models/fb15k-237-transe.pt) |
-| [DistMult](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/ICLR2015_updated.pdf)  | 0.343 |  0.250 |  0.378 |   0.531 | [config.yaml](http://web.informatik.uni-mannheim.de/pi1/iclr2020-models/fb15k-237-distmult.yaml) | [NegSamp-kl](http://web.informatik.uni-mannheim.de/pi1/iclr2020-models/fb15k-237-distmult.pt) |
-| [ComplEx](http://proceedings.mlr.press/v48/trouillon16.pdf)                                           | 0.348 |  0.253 |  0.384 |   0.536 |  [config.yaml](http://web.informatik.uni-mannheim.de/pi1/iclr2020-models/fb15k-237-complex.yaml) |  [NegSamp-kl](http://web.informatik.uni-mannheim.de/pi1/iclr2020-models/fb15k-237-complex.pt) |
-| [ConvE](https://arxiv.org/abs/1707.01476)                                                             | 0.339 |  0.248 |  0.369 |   0.521 |    [config.yaml](http://web.informatik.uni-mannheim.de/pi1/iclr2020-models/fb15k-237-conve.yaml) |     [1vsAll-kl](http://web.informatik.uni-mannheim.de/pi1/iclr2020-models/fb15k-237-conve.pt) |
+**Graph-Cut**
 
-#### WN18RR (Wordnet)
-
-|                                                                                                       |   MRR | Hits@1 | Hits@3 | Hits@10 |                                                                                 Config file |                                                                        Pretrained model |
-|-------------------------------------------------------------------------------------------------------|------:|-------:|-------:|--------:|--------------------------------------------------------------------------------------------:|----------------------------------------------------------------------------------------:|
-| [RESCAL](http://www.icml-2011.org/papers/438_icmlpaper.pdf)                                           | 0.467 |  0.439 |  0.480 |   0.517 |   [config.yaml](http://web.informatik.uni-mannheim.de/pi1/iclr2020-models/wnrr-rescal.yaml) |   [KvsAll-kl](http://web.informatik.uni-mannheim.de/pi1/iclr2020-models/wnrr-rescal.pt) |
-| [TransE](https://papers.nips.cc/paper/5071-translating-embeddings-for-modeling-multi-relational-data) | 0.228 |  0.053 |  0.368 |   0.520 |   [config.yaml](http://web.informatik.uni-mannheim.de/pi1/iclr2020-models/wnrr-transe.yaml) |  [NegSamp-kl](http://web.informatik.uni-mannheim.de/pi1/iclr2020-models/wnrr-transe.pt) |
-| [DistMult](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/ICLR2015_updated.pdf)  | 0.452 |  0.413 |  0.466 |   0.530 | [config.yaml](http://web.informatik.uni-mannheim.de/pi1/iclr2020-models/wnrr-distmult.yaml) | [KvsAll-kl](http://web.informatik.uni-mannheim.de/pi1/iclr2020-models/wnrr-distmult.pt) |
-| [ComplEx](http://proceedings.mlr.press/v48/trouillon16.pdf)                                           | 0.475 |  0.438 |  0.490 |   0.547 |  [config.yaml](http://web.informatik.uni-mannheim.de/pi1/iclr2020-models/wnrr-complex.yaml) |  [1vsAll-kl](http://web.informatik.uni-mannheim.de/pi1/iclr2020-models/wnrr-complex.pt) |
-| [ConvE](https://arxiv.org/abs/1707.01476)                                                             | 0.442 |  0.411 |  0.451 |   0.504 |    [config.yaml](http://web.informatik.uni-mannheim.de/pi1/iclr2020-models/wnrr-conve.yaml) |    [KvsAll-kl](http://web.informatik.uni-mannheim.de/pi1/iclr2020-models/wnrr-conve.pt) |
-
-#### FB15K (Freebase)
-
-|                                                                                                       |   MRR | Hits@1 | Hits@3 | Hits@10 |                                                                                      Config file |                                                                              Pretrained model |
-|-------------------------------------------------------------------------------------------------------|------:|-------:|-------:|--------:|-------------------------------------------------------------------------------------------------:|----------------------------------------------------------------------------------------------:|
-| [TransE](https://papers.nips.cc/paper/5071-translating-embeddings-for-modeling-multi-relational-data) | 0.676 | 0.542  | 0.787  |   0.875 |   [config.yaml](http://web.informatik.uni-mannheim.de/pi1/libkge-models/fb15k-transe.yaml) |   [NegSamp-kl](http://web.informatik.uni-mannheim.de/pi1/libkge-models/fb15k-transe.pt) |
-| [DistMult](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/ICLR2015_updated.pdf)  | 0.841 | 0.806  | 0.863  |   0.903 | [config.yaml](http://web.informatik.uni-mannheim.de/pi1/libkge-models/fb15k-distmult.yaml) | [1vsAll-kl](http://web.informatik.uni-mannheim.de/pi1/libkge-models/fb15k-distmult.pt) |
-| [ComplEx](http://proceedings.mlr.press/v48/trouillon16.pdf)                                           | 0.838 | 0.807  | 0.856  |   0.893 |  [config.yaml](http://web.informatik.uni-mannheim.de/pi1/libkge-models/fb15k-complex.yaml) |  [1vsAll-kl](http://web.informatik.uni-mannheim.de/pi1/libkge-models/fb15k-complex.pt) |
-| [ConvE](https://arxiv.org/abs/1707.01476)                                                             | 0.825 | 0.781  | 0.855  |   0.896 |    [config.yaml](http://web.informatik.uni-mannheim.de/pi1/libkge-models/fb15k-conve.yaml) |     [KvsAll-bce](http://web.informatik.uni-mannheim.de/pi1/libkge-models/fb15k-conve.pt) |
-
-#### WN18 (Wordnet)
-
-|                                                                                                       |   MRR | Hits@1 | Hits@3 | Hits@10 |                                                                                 Config file |                                                                        Pretrained model |
-|-------------------------------------------------------------------------------------------------------|------:|-------:|-------:|--------:|--------------------------------------------------------------------------------------------:|----------------------------------------------------------------------------------------:|
-| [RESCAL](http://www.icml-2011.org/papers/438_icmlpaper.pdf)                                           | 0.948 | 0.943  | 0.951  |   0.956 |   [config.yaml](http://web.informatik.uni-mannheim.de/pi1/libkge-models/wn18-rescal.yaml) |   [1vsAll-kl](http://web.informatik.uni-mannheim.de/pi1/libkge-models/wn18-rescal.pt) |
-| [TransE](https://papers.nips.cc/paper/5071-translating-embeddings-for-modeling-multi-relational-data) | 0.553 | 0.315  | 0.764  |   0.924 |   [config.yaml](http://web.informatik.uni-mannheim.de/pi1/libkge-models/wn18-transe.yaml) |  [NegSamp-bce](http://web.informatik.uni-mannheim.de/pi1/libkge-models/wn18-transe.pt) |
-| [DistMult](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/ICLR2015_updated.pdf)  | 0.941 | 0.932  | 0.948  |   0.954 | [config.yaml](http://web.informatik.uni-mannheim.de/pi1/libkge-models/wn18-distmult.yaml) | [1vsAll-kl](http://web.informatik.uni-mannheim.de/pi1/libkge-models/wn18-distmult.pt) |
-| [ComplEx](http://proceedings.mlr.press/v48/trouillon16.pdf)                                           | 0.951 | 0.947  | 0.953  |   0.958 |  [config.yaml](http://web.informatik.uni-mannheim.de/pi1/libkge-models/wn18-complex.yaml) |  [KvsAll-kl](http://web.informatik.uni-mannheim.de/pi1/libkge-models/wn18-complex.pt) |
-| [ConvE](https://arxiv.org/abs/1707.01476)                                                             | 0.947 | 0.943  | 0.949  |   0.953 |    [config.yaml](http://web.informatik.uni-mannheim.de/pi1/libkge-models/wn18-conve.yaml) |    [1vsAll-kl](http://web.informatik.uni-mannheim.de/pi1/libkge-models/wn18-conve.pt) |
-
-#### Wikidata5M (Wikidata)
-
-LibKGE supports large datasets such as Wikidata5M (4.8M entities). The result
-given below was found by automatic hyperparameter search similar to the one used
-for the smaller datasets above, but with some values fixed (training with shared
-negative sampling, embedding dimension: 128, batch size: 1024, optimizer:
-Adagrad, regularization: weighted). We ran 30 pseudo-random configurations for
-20 epochs, and then reran the configuration that performed best on validation
-data for 200 epochs.
-
-|                                                             |   MRR | Hits@1 | Hits@3 | Hits@10 |                                                                                    Config file |                                                                            Pretrained model |
-|-------------------------------------------------------------|------:|-------:|-------:|--------:|-----------------------------------------------------------------------------------------------:|--------------------------------------------------------------------------------------------:|
-| [ComplEx](http://proceedings.mlr.press/v48/trouillon16.pdf) | 0.301 |  0.245 |  0.331 |   0.397 | [config.yaml](http://web.informatik.uni-mannheim.de/pi1/libkge-models/wikidata5m-complex.yaml) | [NegSamp-kl](http://web.informatik.uni-mannheim.de/pi1/libkge-models/wikidata5m-complex.pt) |
-
-#### Yago3-10 (YAGO)
-
-The result given below was found by the same automatic hyperparameter search used for Wikidata5M. We reran the configuration that performed best on validation data for 400 epochs.
+````sh
+cd data
+python partition_graph_cut.py <dataset-name> -n <num-partitions>
+cd ..
+````
 
 
-|                                                             |   MRR | Hits@1 | Hits@3 | Hits@10 |                                                                                    Config file |                                                                            Pretrained model |
-|-------------------------------------------------------------|------:|-------:|-------:|--------:|-----------------------------------------------------------------------------------------------:|--------------------------------------------------------------------------------------------:|
-| [ComplEx](http://proceedings.mlr.press/v48/trouillon16.pdf) | 0.551 |  0.476 |  0.596 |   0.682 | [config.yaml](http://web.informatik.uni-mannheim.de/pi1/libkge-models/yago3-10-complex.yaml) | [NegSamp-kl](http://web.informatik.uni-mannheim.de/pi1/libkge-models/yago3-10-complex.pt) |
-
-#### CoDEx
-
-[CoDEx](https://github.com/tsafavi/codex) is a Wikidata-based KG completion
-benchmark. The results here have been obtained using the automatic
-hyperparameter search used for the Freebase and WordNet datasets, but with fewer
-epochs and Ax trials for CoDEx-M and CoDEx-L. See the [CoDEx
-paper](https://arxiv.org/pdf/2009.07810.pdf) (EMNLP 2020) for details.
-
-##### CoDEx-S
-
-|  | MRR | Hits@1 | Hits@3 | Hits@10 | Config file | Pretrained model |
-|---------|----:|----:|-------:|--------:|------------:|-----------------:|
-| RESCAL | 0.404 | 0.293 | 0.4494 | 0.623 | [config.yaml](https://github.com/tsafavi/codex/tree/master/models/link-prediction/codex-s/rescal/config.yaml) | [1vsAll-kl](https://www.dropbox.com/s/v209jchl93mmeuv/codex-s-lp-rescal.pt?dl=0) |
-| TransE | 0.354 | 0.219 | 0.4218 | 0.634 | [config.yaml](https://github.com/tsafavi/codex/tree/master/models/link-prediction/codex-s/transe/config.yaml) | [NegSamp-kl](https://www.dropbox.com/s/8brqhb4bd5gnktc/codex-s-lp-transe.pt?dl=0) |
-| ComplEx | 0.465 | 0.372 | 0.5038 | 0.646 | [config.yaml](https://github.com/tsafavi/codex/tree/master/models/link-prediction/codex-s/complex/config.yaml) | [1vsAll-kl](https://www.dropbox.com/s/kk3pgdnyddsdzn9/codex-s-lp-complex.pt?dl=0) |
-| ConvE | 0.444 | 0.343 | 0.4926  | 0.635 | [config.yaml](https://github.com/tsafavi/codex/tree/master/models/link-prediction/codex-s/conve/config.yaml) | [1vsAll-kl](https://www.dropbox.com/s/atvu77pzed6mcgh/codex-s-lp-conve.pt?dl=0) |
-| TuckER | 0.444 | 0.339 | 0.4975 | 0.638 | [config.yaml](https://github.com/tsafavi/codex/tree/master/models/link-prediction/codex-s/tucker/config.yaml) | [KvsAll-kl](https://www.dropbox.com/s/f87xloe2g3f4fvy/codex-s-lp-tucker.pt?dl=0) 
-
-##### CoDEx-M
-
-|  | MRR | Hits@1 | Hits@3 |Hits@10 | Config file | Pretrained model |
-|---------|----:|----:|-------:|--------:|------------:|-----------------:|
-| RESCAL | 0.317 | 0.244 | 0.3477 | 0.456 | [config.yaml](https://github.com/tsafavi/codex/tree/master/models/link-prediction/codex-m/rescal/config.yaml) | [1vsAll-kl](https://www.dropbox.com/s/e3kp3eu4nnknn5b/codex-m-lp-rescal.pt?dl=0) |
-| TransE | 0.303 | 0.223 | 0.3363 | 0.454 | [config.yaml](https://github.com/tsafavi/codex/tree/master/models/link-prediction/codex-m/transe/config.yaml) | [NegSamp-kl](https://www.dropbox.com/s/y8uucaajpofct3x/codex-m-lp-transe.pt?dl=0) |
-| ComplEx | 0.337 | 0.262 | 0.3701 | 0.476 | [config.yaml](https://github.com/tsafavi/codex/tree/master/models/link-prediction/codex-m/complex/config.yaml) | [KvsAll-kl](https://www.dropbox.com/s/psy21fvbn5pbmw6/codex-m-lp-complex.pt?dl=0) |
-| ConvE | 0.318 | 0.239 | 0.3551 | 0.464 | [config.yaml](https://github.com/tsafavi/codex/tree/master/models/link-prediction/codex-m/conve/config.yaml) | [NegSamp-kl](https://www.dropbox.com/s/awjhlrfjrgz9phi/codex-m-lp-conve.pt?dl=0) |
-| TuckER | 0.328 | 0.259 | 0.3599 | 0.458 | [config.yaml](https://github.com/tsafavi/codex/tree/master/models/link-prediction/codex-m/tucker/config.yaml) | [KvsAll-kl](https://www.dropbox.com/s/so5l2owtx7wcos1/codex-m-lp-tucker.pt?dl=0) |
-
-
-##### CoDEx-L
-
-|  | MRR | Hits@1 | Hits@3 | Hits@10 | Config file | Pretrained model |
-|---------|----:|----:|-------:|--------:|------------:|-----------------:|
-| RESCAL | 0.304 | 0.242 | 0.3313 | 0.419 | [config.yaml](https://github.com/tsafavi/codex/tree/master/models/link-prediction/codex-l/rescal/config.yaml) | [1vsAll-kl](https://www.dropbox.com/s/wvbef9u98vmkbi8/codex-l-lp-rescal.pt?dl=0) |
-| TransE | 0.187 | 0.116 | 0.2188 | 0.317 | [config.yaml](https://github.com/tsafavi/codex/tree/master/models/link-prediction/codex-l/transe/config.yaml) | [NegSamp-kl](https://www.dropbox.com/s/s9d682b49tuq5mc/codex-l-lp-transe.pt?dl=0) |
-| ComplEx | 0.294 | 0.237 | 0.3179 | 0.400 | [config.yaml](https://github.com/tsafavi/codex/tree/master/models/link-prediction/codex-l/complex/config.yaml) | [1vsAll-kl](https://www.dropbox.com/s/jqubvr77og2pvzv/codex-l-lp-complex.pt?dl=0) |
-| ConvE | 0.303 | 0.240 | 0.3298 | 0.420 | [config.yaml](https://github.com/tsafavi/codex/tree/master/models/link-prediction/codex-l/conve/config.yaml) | [1vsAll-kl](https://www.dropbox.com/s/qcfjy6i1sqbec0z/codex-l-lp-conve.pt?dl=0) |
-| TuckER | 0.309 | 0.244 | 0.3395 | 0.430 | [config.yaml](https://github.com/tsafavi/codex/tree/master/models/link-prediction/codex-l/tucker/config.yaml) | [KvsAll-kl](https://www.dropbox.com/s/j8u4nqwzz3v7jw1/codex-l-lp-tucker.pt?dl=0) |
-
-## Using LibKGE
-
-LibKGE supports training, evaluation, and hyperparameter tuning of KGE models.
-The settings for each task can be specified with a configuration file in YAML
-format or on the command line. The default values and usage for available
-settings can be found in [config-default.yaml](kge/config-default.yaml) as well
-as the model- and embedder-specific configuration files (such as
-[lookup_embedder.yaml](kge/model/embedder/lookup_embedder.yaml)).
-
-#### Train a model
-
-First create a configuration file such as:
-
-```yaml
-job.type: train
-dataset.name: fb15k-237
-
+## Single Machine Multi-GPU Training
+Run following example to train on two GPUs with random partitioning (two worker per GPU):
+````
+python -m kge start examples/fb15k-complex-parallel.yaml
+````
+The most important configuration options for multi-gpu training are:
+````yaml
+import:
+  - complex
+  - distributed_model
+model: distributed_model
+distributed_model:
+  base_model: complex
+job:
+  distributed:
+    num_partitions: 4
+    num_workers: 4
+    partition_type: random
+    master_port: 8888  # change in case this port is used on your machine
+  device_pool:
+    - cuda:0
+    - cuda:1
 train:
-  optimizer: Adagrad
-  optimizer_args:
-    lr: 0.2
+  type: distributed_negative_sampling
+  optimizer:
+    default:
+      type: dist_adagrad
+````
+
+## Multi-GPU Multi-Machine Training
+### Parameter Server
+For multi-machine training we use the parameter server [Lapse](https://github.com/alexrenz/lapse-ps).
+To install Lapse and the corresponding python bindings run the following commands:
+````sh
+git clone https://github.com/alexrenz/lapse-ps.git
+cd lapse-ps
+make ps KEY_TYPE=int64_t CXX11_ABI=$(python bindings/lookup_torch_abi.py) DEPS_PATH=$(pwd)/deps_bindings
+cd bindings 
+python setup.py install --user
+````
+For further documentation on the python bindings refer to [Lapse-Binding documentation](https://github.com/alexrenz/lapse-ps/tree/main/bindings).
+
+In case you can not use Lapse, we provide a very inefficient parameter server (for debugging). To use this debugging PS use the option `--job.distributed.parameter_server torch`
+
+### Interface
+As we use the gloo backend to communicate between master and worker nodes you need to specify the interface connecting your machines and specify it as `--job.distributed.gloo_socket_ifname`.
+You can find out the names of your interfaces with the command
+````sh
+ip address
+````
+
+### Example
+Run the following example to train on two machines with one GPU each (1@2) with random partitioning:
+
+Command for machine 1
+````sh
+python -m kge start examples/fb15k_complex_distributed.yaml --job.distributed.machine_id 0 --job.distributed.master_ip <ip_of_machine_0>
+````
+
+Command for machine 2
+````sh
+python -m kge start examples/fb15k_complex_distributed.yaml --job.distributed.machine_id 1 --job.distributed.master_ip <ip_of_machine_0>
+````
+
+
+Important options for distributed training in addition to the options specified in the single-machine setting are:
+````yaml
+job:
+  distributed:
+    master_ip: '<ip_of_machine_0>'  # ip address of the machine with machine_id 0
+    num_machines: 2
+    num_workers_machine: 2
+    gloo_socket_ifname: bond0  # name of the interface to use. Use command 'ip address' to find names
+    parameter_server: lapse
+````
+
+## Folder structure of experiment results
+- by default, each experiment will create a new folder in `local/experiments/<timestamp>-<config-name>`
+- this folder can be changed with command line argument `--folder path/to/folder`
+- for multi-machine training a folder is created for each machine. Therefore, specify a separate folder name for each machine if you work on a shared filesystem.
+- each worker will have its own subfolder logging partition-processing times
+- the complete epoch time over all partitions is logged in the main `kge.log` file
+- hardware information is logged into `hardware_monitor.log` and `gpu_monitor.log`
+- evaluation is performed on machine-0 by worker-0. Therefore, evaluation results are logged into folder `<experiment-folder-machine-0>/worker-0/` in the files `kge.log` and `trace.yaml`
+
+
+## Results and Configurations
+- all ranking metrics are filtered with train, valid and test if not mentioned otherwise
+- configuration files for the experiments can be found [here](examples/experiments)
+
+### Partitioning techniques (best-performing variant)
+- best performing variant in terms of time to 0.95 MRR reached in the sequential setting
+
+#### FB15k
+**ComplEx**
+
+Setup   |   Partitioning Technique  |   Epoch Time  |   Time to 0.95 MRR    |   MRR |   MRR unfiltered  |   Hits@1  |   Hits@10 |   Hits@100    | config
+----    |   -----   |   ----:   |   ----:   |   ----:   |   ----:   |   ----:   |   ----:   |   ----:   |   -----
+. |  Sequential (GPU memory)    |   5.9s    |   3.9min  |   0.778   |  0.245 | 0.729  |   0.862  |   0.932  |   [config](examples/experiments/fb15k/dim128/complex/complex-fb15k-sequential.yaml)
+. |  Sequential (main memory)    |   7.7s    |   5.1min  |   0.778   | 0.245  |  0.729 |   0.862    |   0.932   |   [config](examples/experiments/fb15k/dim128/complex/complex-fb15k-sequential-mm.yaml)
+2@1 |  Random (R)    |   2.6s    |   2.0min  |   0.775   |  0.243 | 0.726  |   0.859    |   0.931   |   [config](examples/experiments/fb15k/dim128/complex/complex-fb15k-parallel-random-R-2@1.yaml)
+1@2 |  Random (R)    |   2.9s    |   2.2min  |   0.775   |  0.243 | 0.726  |   0.859    |   0.931   |   [config](examples/experiments/fb15k/dim128/complex/complex-fb15k-distributed-random-R-1@2.yaml)
+4@2 |  Random (R)    |   1.3s    |   1.3min  |   0.766   |  0.241 |  0.712 |   0.858    |   0.929   |   [config](examples/experiments/fb15k/dim128/complex/complex-fb15k-distributed-random-R-4@2.yaml)
+
+**RotatE**
+
+Setup   |   Partitioning Technique  |   Epoch Time  |   Time to 0.95 MRR    |   MRR |   MRR unfiltered  |   Hits@1  |   Hits@10 |   Hits@100    | config
+----    |   -----   |   ----:   |   ----:   |   ----:   |   ----:   |   ----:   |   ----:   |   ----:   |   -----
+. |  Sequential (GPU memory)    |   9.5s    |   11.9min  |   0.705   | 0.232  |  0.630 |   0.834    |   0.928   |   [config](examples/experiments/fb15k/dim128/rotate/rotate-fb15k-sequential.yaml)
+. |  Sequential (main memory)    |   11.4s    |   14.3min  |   0.705   |  0.232 |  0.630 |   0.834    |   0.928 |   [config](examples/experiments/fb15k/dim128/rotate/rotate-fb15k-sequential-mm.yaml)
+2@1 |  Stratification (CARL)    |   4.6s    |   5.8min  |   0.725   | 0.239  |  0.664 |   0.835 |   0.926   |   [config](examples/experiments/fb15k/dim128/rotate/rotate-fb15k-parallel-stratification-CARL-2@1.yaml)
+1@2 |  Stratification (CARL)    |   5.9s    |   7.4min  |   0.725   |  0.239 |  0.664 |   0.835 |   0.926   |   [config](examples/experiments/fb15k/dim128/rotate/rotate-fb15k-distributed-stratification-CARL-1@2.yaml)
+
+
+#### Yago3-10
+**ComplEx**
+
+Setup   |   Partitioning Technique  |   Epoch Time  |   Time to 0.95 MRR    |   MRR |   MRR unfiltered  |   Hits@1  |   Hits@10 |   Hits@100    | config
+----    |   -----   |   ----:   |   ----:   |   ----:   |   ----:   |   ----:   |   ----:   |   ----:   |   -----
+. |  Sequential (GPU memory)    |   24.3s    |   35.5min  |   0.542   | 0.111  |  0.468 |   0.675 |  0.791 |   [config](examples/experiments/yago3-10/dim128/complex/complex-yago3-10-sequential.yaml)
+. |  Sequential (main memory)    |   42.6s    |   67.5min  |   0.542   |  0.111 | 0.468  |   0.675  |   0.791   |   [config](examples/experiments/yago3-10/dim128/complex/complex-yago3-10-sequential-mm.yaml)
+2@1 |  Relation    |   19.0s    |   33.2min  |   0.538   | 0.107  | 0.465  |   0.669  | 0.787  |   [config](examples/experiments/yago3-10/dim128/complex/complex-yago3-10-parallel-relation-2@1.yaml)
+1@2 |  Random (RL)    |   19.5s    |   35.8min  |   0.547   |  0.109 |  0.473 |   0.679  |  0.791 |   [config](examples/experiments/yago3-10/dim128/complex/complex-yago3-10-distributed-random-RL-1@2.yaml)
+4@2 |  Random (RL)    |   5.6s    |   n.r.  |   0.503   |  0.106 |  0.423 |   0.653    |   0.778   |   [config](examples/experiments/yago3-10/dim128/complex/complex-yago3-10-distributed-random-RL-4@2.yaml)
 
-valid:
-  every: 5
-  metric: mean_reciprocal_rank_filtered
 
-model: complex
-lookup_embedder:
-  dim: 100
-  regularize_weight: 0.8e-7
-```
+**RotatE**
 
-To begin training, run one of the following:
 
-```sh
-# Store the file as `config.yaml` in a new folder of your choice. Then initiate or resume
-# the training job using:
-kge resume <folder>
+Setup   |   Partitioning Technique  |   Epoch Time  |   Time to 0.95 MRR    |   MRR |   MRR unfiltered  |   Hits@1  |   Hits@10 |   Hits@100    | config
+----    |   -----   |   ----:   |   ----:   |   ----:   |   ----:   |   ----:   |   ----:   |   ----:   |   -----
+. |  Sequential (GPU memory)    |   74.1s    |   259.3min  |   0.451   | 0.104  | 0.343  |   0.637 |  0.773 |   [config](examples/experiments/yago3-10/dim128/rotate/rotate-yago3-10-sequential.yaml)
+. |  Sequential (main memory)    |   88.0s    |   307.8min  |   0.451   | 0.104  | 0.343  |   0.637 | 0.773  |   [config](examples/experiments/yago3-10/dim128/rotate/rotate-yago3-10-sequential-mm.yaml)
+2@1 |  Stratification (CARL)    |   40.8s    |   166.6min  |   0.438   |  0.115 | 0.350  |   0.607 |  0.764 |  [config](examples/experiments/yago3-10/dim128/rotate/rotate-yago3-10-parallel-stratification-CARL-2@1.yaml)
+1@2 |  Stratification (CARL)    |   43.3s    |   175.8min  |   0.438   |  0.115 |  0.350 |   0.607 | 0.764  |  [config](examples/experiments/yago3-10/dim128/rotate/rotate-yago3-10-distributed-stratification-CARL-1@2.yaml)
 
-# Alternatively, store the configuration anywhere and use the start command
-# to create a new folder
-#   <kge-home>/local/experiments/<date>-<config-file-name>
-# with that config and start training there.
-kge start <config-file>
 
-# In both cases, configuration options can be modified on the command line, too: e.g.,
-kge start <config-file> config.yaml --job.device cuda:0 --train.optimizer Adam
-```
+#### Wikidata5m
 
-Various checkpoints (including model parameters and configuration options) will
-be created during training. These checkpoints can be used to resume training (or any other job type such as hyperparameter search jobs).
+**ComplEx**
 
-#### Resume training
+Setup   |   Partitioning Technique  |   Epoch Time  |   Time to 0.95 MRR    |   MRR |   MRR unfiltered  |   Hits@1  |   Hits@10 |   Hits@100    | config
+----    |   -----   |   ----:   |   ----:   |   ----:   |   ----:   |   ----:   |   ----:   |   ----:   |   -----
+. |  Sequential (GPU memory)    |   438.4s    |   219.0min  |   0.297   |  0.255 | 0.246  |   0.385 | 0.516  |   [config](examples/experiments/wikidata5m/dim128/complex/complex-wikidata5m-sequential.yaml)
+. |  Sequential (GPU memory)    |   774.3s    |   387.0min  |   0.297   | 0.255  |  0.246 |   0.386 | 0.516  |  [config](examples/experiments/wikidata5m/dim128/complex/complex-wikidata5m-sequential-mm.yaml)
+2@1 |  Stratification (CARL)    |   232.8s    |   77.6min  |   0.308   | 0.264  | 0.255  |   0.398 | 0.513  |   [config](examples/experiments/wikidata5m/dim128/complex/complex-wikidata5m-parallel-stratification-CARL-2@1.yaml)
+1@2 |  Stratification (CARL)    |   228.0s    |   76.0min  |   0.308   | 0.264  | 0.255  |   0.398 |  0.513 |   [config](examples/experiments/wikidata5m/dim128/complex/complex-wikidata5m-distributed-stratification-CARL-1@2.yaml)
 
-All of LibKGE's jobs can be interrupted (e.g., via `Ctrl-C`) and resumed (from one of its checkpoints). To resume a job, use:
 
-```sh
-kge resume <folder>
+**RotatE**
 
-# Change the device when resuming
-kge resume <folder> --job.device cuda:1
-```
+Setup   |   Partitioning Technique  |   Epoch Time  |   Time to 0.95 MRR    |   MRR |   MRR unfiltered  |   Hits@1  |   Hits@10 |   Hits@100    | config
+----    |   -----   |   ----:   |   ----:   |   ----:   |   ----:   |   ----:   |   ----:   |   ----:   |   -----
+. |  Sequential (GPU memory)    |   798.4s    |   199.6min  |   0.258   |  0.225 | 0.202  |   0.348 | 0.453  |   [config](examples/experiments/wikidata5m/dim128/rotate/rotate-wikidata5m-sequential.yaml)
+. |  Sequential (GPU memory)    |   985.7s    |   246.4min  |   0.258   | 0.225  | 0.202  |   0.348 | 0.453  |  [config](examples/experiments/wikidata5m/dim128/rotate/rotate-wikidata5m-sequential-mm.yaml)
+2@1 |  Stratification (ARL)    |   466.7s    |   77.8min  |   0.264   | 0.230  |  0.213 |   0.344 |  0.410 |   [config](examples/experiments/wikidata5m/dim128/rotate/rotate-wikidata5m-parallel-stratification-ARL-2@1.yaml)
+1@2 |  Stratification (ARL)    |   477.7s    |   79.6min  |   0.264   | 0.230  | 0.213  |   0.344 | 0.410  |   [config](examples/experiments/wikidata5m/dim128/rotate/rotate-wikidata5m-distributed-stratification-ARL-1@2.yaml)
 
-By default, the last checkpoint file is used. The filename of the checkpoint can be overwritten using ``--checkpoint``.
 
+#### Freebase
 
-#### Evaluate a trained model
+**ComplEx**
 
-To evaluate trained model, run the following:
+Setup   |   Partitioning Technique  |   Epoch Time  |   Data sent per epoch    |   sMRR |   sMRR unfiltered  |  MRR |   MRR unfiltered   |  Hits@1  |   Hits@10 |   Hits@100    | config
+----    |   -----   |   ----:   |   ----:   |   ----:   |   ----:   |   ----:   |   ----:   |   ----:   |   ---:    |   ----:   |   -----
+. | Sequential (main memory)    |   3929.0s |   -   |   0.811   | 0.776  |   0.364   | 0.311  | 0.298  |   0.487    |   0.618   |   [config](examples/experiments/freebase/dim128/complex/complex-freebase-sequential-mm.yaml)
+. | Sequential (B) (main memory)    |   3925.2s |   -   |   0.815   | 0.782  |   0.426   | 0.345  |  0.370 |   0.528    |   0.642   |   [config](examples/experiments/freebase/dim128/complex/complex-freebase-sequential-B-mm.yaml)
+2@2 | Random (RLB)    |   966.7s |   232.8GB   |   0.816   |  0.782 |   0.426   | 0.352 |    0.371 |   0.529    |  0.639 |   [config](examples/experiments/freebase/dim128/complex/random/complex-freebase-distributed-random-RLB-2@2.yaml)
+2@2 | Relation (rLB)    |   823.8s |   205.9GB   |   0.801   |  0.770 |   0.397   |  0.326 |  0.339 |   0.507    |  0.631 |   [config](examples/experiments/freebase/dim128/complex/relation/complex-freebase-distributed-relation-rLB-2@2.yaml)
+2@2 | Stratification (CARLB)    |   803.9s |   123.2GB   |   0.793   | 0.761  |   0.325   | 0.285  |  0.272 |   0.424    | 0.563  |   [config](examples/experiments/freebase/dim128/complex/stratification/complex-freebase-distributed-stratification-CARLB-2@2.yaml)
+2@2 | Graph-cut (LB)    |   1170.6s |   42.5GB   |   0.789   |  0.761 |   0.407   | 0.335  | 0.351  |   0.512    | 0.624  |   [config](examples/experiments/freebase/dim128/complex/graph-cut/complex-freebase-distributed-graph-cut-LB-2@2.yaml)
+4@2 | Random (RLB)    |   591.6s |   251.9GB   |   0.819   | 0.784  |   0.421   | 0.346  |  0.364 |   0.523    |  0.638 |   [config](examples/experiments/freebase/dim128/complex/random/complex-freebase-distributed-random-RLB-4@2.yaml)
 
-```sh
-# Evaluate a model on the validation split
-kge valid <folder>
+**RotatE**
 
-# Evaluate a model on the test split
-kge test <folder>
-```
+Setup   |   Partitioning Technique  |   Epoch Time  |   Data sent per epoch    |   sMRR |   sMRR unfiltered  |  MRR |   MRR unfiltered   |  Hits@1  |   Hits@10 |   Hits@100    | config
+----    |   -----   |   ----:   |   ----:   |   ----:   |   ----:   |   ----:   |   ----:   |   ----:   |   ---:    |   ----:   |   -----
+.   | Sequential (main memory)    |   6495.7s |   -   |   0.774   | 0.748  |   0.566   | 0.426  | 0.529  |   0.627    |   0.677   | [config](examples/experiments/freebase/dim128/rotate/rotate-freebase-sequential-mm.yaml)
+.   | Sequential (B) (main memory)    |   6184.0s |   -   |   0.812   |  0.774 |   0.560   |  0.422 |  0.521 |   0.623    |   0.674 | [config](examples/experiments/freebase/dim128/rotate/rotate-freebase-sequential-B-mm.yaml)
+2@2 | Random (RLB)     |   1541.4s |   232.2GB   |   0.812   | 0.773  |   0.567   |  0.425 |  0.529 |   0.630|  0.678   | [config](examples/experiments/freebase/dim128/rotate/random/rotate-freebase-distributed-random-RLB-2@2.yaml)
+2@2 | Relation (rLB)     |   1498.1s |   207.2GB   |   0.791   | 0.758  |   0.551   | 0.407  | 0.515  |   0.608 |   0.656   | [config](examples/experiments/freebase/dim128/rotate/relation/rotate-freebase-distributed-relation-rLB-2@2.yaml)
+2@2 | Stratification (CARLB)     |   1416.1s |   123.3GB   |   0.734   | 0.720  |   0.529   | 0.395  | 0.491  |   0.592 |   0.641   | [config](examples/experiments/freebase/dim128/rotate/stratification/rotate-freebase-distributed-stratification-CARLB-2@2.yaml)
+2@2 | Graph-cut (LB)     |   1867.9s |   44.5GB   |   0.775   | 0.749  |   0.560   | 0.410  | 0.526  |   0.616  |   0.654   | [config](examples/experiments/freebase/dim128/rotate/graph-cut/rotate-freebase-distributed-graph-cut-LB-2@2.yaml)
 
-By default, the checkpoint file named ``checkpoint_best.pt`` (which stores the best validation result so far) is used. The filename of the checkpoint can be overwritten using ``--checkpoint``.
 
-#### Hyperparameter optimization
 
-LibKGE supports various forms of hyperparameter optimization such as grid search
-or Bayesian optimization. The search type and search space are specified in the
-configuration file. For example, you may use [Ax](https://ax.dev/) for SOBOL
-(pseudo-random) and Bayesian optimization.
 
-The following config file defines a search of 10 SOBOL trials (arms) followed by
-20 Bayesian optimization trials:
+### Row-Adagrad
+Row-wise optimizers treat each embedding as a single parameter
+instead of each dimension of an embedding and therefore reduce storage and
+communication overhead by about 50\%. 
+We observed no negative influence on the resulting embedding quality for all
+partitioning methods but graph-cut partitioning, where the drop was small but
+noticeable. Overall, we found Row-Adagrad to be a suitable approach to reduce
+storage and communication costs.
+We report on ComplEx, 1@2.
 
-```yaml
-job.type: search
-search.type: ax
+#### Yago3-10
 
-dataset.name: wnrr
-model: complex
-valid.metric: mean_reciprocal_rank_filtered
+Partition Technique |   Data sent (Adagrad) |   MRR (Adagrad)   |   Data sent (Row-Adagrad) |   MRR (Row-Adagrad)
+---------   |   -----:  |   -----:  |   ----:   |   ----:
+Sequential  |   -   |   0.542   |   -   |   0.542
+Random (R)  |   7.2GB   |   0.538   |   5.0GB   |   0.534
+Relation    |   7.1GB   |   0.538   |   4.9GB   |   0.542
+Stratification  |   0.4GB   |   0.531   |   0.2GB   |   0.539
+Graph-cut   |   0.2GB   |   0.211   |   0.1GB   |   0.180
 
-ax_search:
-  num_trials: 30
-  num_sobol_trials: 10  # remaining trials are Bayesian
-  parameters:
-    - name: train.batch_size
-      type: choice
-      values: [256, 512, 1024]
-    - name: train.optimizer_args.lr
-      type: range
-      bounds: [0.0003, 1.0]
-    - name: train.type
-      type: fixed
-      value: 1vsAll
-```
+#### Wikidata5m
 
-Trials can be run in parallel across several devices:
+Partition Technique |   Data sent (Adagrad) |   MRR (Adagrad)   |   Data sent (Row-Adagrad) |   MRR (Row-Adagrad)
+---------   |   -----:  |   -----:  |   ----:   |   ----:
+Sequential  |   -   |   0.297   |   -   |   0.291
+Random (R)  |   125.2GB |   0.296   |   65.7GB  |   0.298
+Relation    |   123.8GB |   0.296   |   63.5GB  |   0.300
+Stratification  |   15.0GB  |   0.308   |   7.4GB   |   0.306
+Graph-cut   |   6.1GB   |   0.192   |   3.7GB   |   0.181
 
-```sh
-# Run 4 trials in parallel evenly distributed across two GPUs
-kge resume <folder> --search.device_pool cuda:0,cuda:1 --search.num_workers 4
-
-# Run 3 trials in parallel, with per GPUs capacity
-kge resume <folder> --search.device_pool cuda:0,cuda:1,cuda:1 --search.num_workers 3
-```
-
-#### Export and analyze logs and checkpoints
-
-Extensive logs are stored as YAML files (hyperparameter search, training,
-validation). LibKGE provides a convenience methods to export the log data to
-CSV.
-
-```sh
-kge dump trace <folder>
-```
-
-The command above yields CSV output such as [this output for a training
-job](docs/examples/dump-example-model.csv) or [this output for a search
-job](https://github.com/uma-pi1/kge-iclr20/blob/master/data_dumps/iclr2020-fb15k-237-all-trials.csv).
-Additional configuration options or metrics can be added to the CSV files as
-needed (using a [keys
-file](https://github.com/uma-pi1/kge-iclr20/blob/master/scripts/iclr2020_keys.conf)).
-
-Information about a checkpoint (such as the configuration that was used,
-training loss, validation metrics, or explored hyperparameter configurations)
-can also be exported from the command line (as YAML):
-
-```sh
-kge dump checkpoint <checkpoint>
-```
-
-Configuration files can also be dumped in various formats.
-```sh
-# dump just the configuration options that are different from the default values
-kge dump config <config-or-folder-or-checkpoint>
-
-# dump the configuration as is
-kge dump config <config-or-folder-or-checkpoint> --raw
-
-# dump the expanded config including all configuration keys
-kge dump config <config-or-folder-or-checkpoint> --full
-
-```
-
-#### Help and other commands
-
-```sh
-# help on all commands
-kge --help
-
-# help on a specific command
-kge dump --help
-```
-
-#### Use a pretrained model in an application
-
-Using a trained model trained with LibKGE is straightforward. In the following
-example, we load a checkpoint and predict the most suitable object for a two
-subject-relations pairs: ('Dominican Republic', 'has form of government', ?) and
-('Mighty Morphin Power Rangers', 'is tv show with actor', ?).
-
-```python
-import torch
-from kge.model import KgeModel
-from kge.util.io import load_checkpoint
-
-# download link for this checkpoint given under results above
-checkpoint = load_checkpoint('fb15k-237-rescal.pt')
-model = KgeModel.create_from(checkpoint)
-
-s = torch.Tensor([0, 2,]).long()             # subject indexes
-p = torch.Tensor([0, 1,]).long()             # relation indexes
-scores = model.score_sp(s, p)                # scores of all objects for (s,p,?)
-o = torch.argmax(scores, dim=-1)             # index of highest-scoring objects
-
-print(o)
-print(model.dataset.entity_strings(s))       # convert indexes to mentions
-print(model.dataset.relation_strings(p))
-print(model.dataset.entity_strings(o))
-
-# Output (slightly revised for readability):
-#
-# tensor([8399, 8855])
-# ['Dominican Republic'        'Mighty Morphin Power Rangers']
-# ['has form of government'    'is tv show with actor']
-# ['Republic'                  'Johnny Yong Bosch']
-```
-
-For other scoring functions (score_sp, score_po, score_so, score_spo), see [KgeModel](kge/model/kge_model.py#L455).
-
-#### Use your own dataset
-
-To use your own dataset, create a subfolder `mydataset` (= dataset name) in the `data` folder. You can use your dataset later by specifying `dataset.name: mydataset` in your job's configuration file.
-
-Each dataset is described by a `dataset.yaml` file, which needs to be stored in the `mydataset` folder. After performing the [quickstart instructions](#quick-start), have a look at the provided toy example under `data/toy/dataset.yaml`. The configuration keys and file formats are documented  [here](https://github.com/uma-pi1/kge/blob/2b693e31c4c06c71336f1c553727419fe01d4aa6/kge/config-default.yaml#L48).
-
-Your data can be automatically preprocessed and converted into the format required by LibKGE. Here is the relevant part for the `toy` dataset, which see:
-```sh
-# download
-curl -O http://web.informatik.uni-mannheim.de/pi1/kge-datasets/toy.tar.gz
-tar xvf toy.tar.gz
-
-# preprocess
-python preprocess/preprocess_default.py toy
-```
-
-
-## Currently supported KGE models
-
-LibKGE currently implements the KGE models listed in [features](#features).
-
-The [examples](examples) folder contains some configuration files as examples of how to train these models.
-
-We welcome contributions to expand the list of supported models! Please see [CONTRIBUTING](CONTRIBUTING.md) for details and feel free to initially open an issue.
-
-## Extending LibKGE
-
-LibKGE can be extended with new training, evaluation, or search jobs as well as
-new models and embedders.
-
-KGE models implement the `KgeModel` class and generally consist of a
-`KgeEmbedder` to associate each subject, relation and object to an embedding and
-a `KgeScorer` to score triples given their embeddings. All these base classes
-are defined in [kge_model.py](kge/model/kge_model.py). 
-
-KGE jobs perform training, evaluation, and hyper-parameter search. The relevant base classes are [Job](kge/job/job.py), [TrainingJob](kge/job/train.py), [EvaluationJob](kge/job/eval.py), and [SearchJob](kge/job/search.py).
-
-To add a component, say `mycomp` (= a model, embedder, or job) with
-implementation `MyClass`, you need to:
-
-1. Create a configuration file `mycomp.yaml`. You may store this file directly
-   in the LibKGE module folders (e.g., `<kge-home>/kge/model/`) or in your own
-   module folder. If you plan to contribute your code to LibKGE, we suggest to
-   directly develop in the LibKGE module folders. If you just want to play
-   around or publish your code separately from LibKGE, use your own module.
-
-2. Define all required options for your component, their default values, and
-   their types in `mycomp.yaml`. We suggest to follow LibKGE's core philosophy
-   and define every option that can influence the outcome of an experiment in
-   this way. Please pay attention w.r.t. integer (`0`) vs. float (`0.0`) values;
-   e.g., `float_option: 0` is incorrect because is interpreted as an integer.
-
-3. Implement `MyClass` in a module of your choice. In `mycomp.yaml`, add key
-   `mycomp.class_name` with value `MyClass`. If you follow LibKGE's directory
-   structure (`mycomp.yaml` for configuration and `mycomp.py` for
-   implementation), then ensure that `MyClass` is imported in `__init__.py`
-   (e.g., as done [here](kge/model/__init__.py)).
-
-4. To use your component in an experiment, register your module via the
-   `modules` key and its configuration via the `import` key in the experiment's
-   configuration file. See [config-default.yaml](kge/config-default.yaml) for a
-   description of those keys. For example, in `myexp_config.yaml`, add:
-
-   ```yaml
-   modules: [ kge.job, kge.model, kge.model.embedder, mymodule ]
-   import: [ mycomp ]
-   ```
-
-## Known issues
-
-## Changelog
-
-See [here](CHANGELOG.md).
-
-
-## Other KGE frameworks
-
-Other KGE frameworks:
- - [Graphvite](https://graphvite.io/)
- - [AmpliGraph](https://github.com/Accenture/AmpliGraph)
- - [OpenKE](https://github.com/thunlp/OpenKE)
- - [PyKEEN](https://github.com/SmartDataAnalytics/PyKEEN)
- - [Pykg2vec](https://github.com/Sujit-O/pykg2vec)
-
-KGE projects for publications that also implement a few models:
- - [ConvE](https://github.com/TimDettmers/ConvE)
- - [KBC](https://github.com/facebookresearch/kbc)
-
-PRs to this list are welcome.
-
-## How to cite
-
-Please cite the following publication to refer to the experimental study about the impact of training methods on KGE performance:
-
-```
-@inproceedings{
-  ruffinelli2020you,
-  title={You {CAN} Teach an Old Dog New Tricks! On Training Knowledge Graph Embeddings},
-  author={Daniel Ruffinelli and Samuel Broscheit and Rainer Gemulla},
-  booktitle={International Conference on Learning Representations},
-  year={2020},
-  url={https://openreview.net/forum?id=BkxSmlBFvr}
-}
-```
-
-If you use LibKGE, please cite the following publication:
-
-```
-@inproceedings{
-  libkge,
-  title="{L}ib{KGE} - {A} Knowledge Graph Embedding Library for Reproducible Research",
-  author={Samuel Broscheit and Daniel Ruffinelli and Adrian Kochsiek and Patrick Betz and Rainer Gemulla},
-  booktitle={Proceedings of the 2020 Conference on Empirical Methods in Natural Language Processing: System Demonstrations},
-  year={2020},
-  url={https://www.aclweb.org/anthology/2020.emnlp-demos.22},
-  pages = "165--174",
-}
-```
