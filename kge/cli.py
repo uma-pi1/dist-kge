@@ -261,11 +261,6 @@ def main():
         # disable processing of outdated cached dataset files globally
         Dataset._abort_when_cache_outdated = args.abort_when_cache_outdated
 
-        # log configuration
-        config.log("Configuration:")
-        config.log(yaml.dump(config.options), prefix="  ")
-        config.log("git commit: {}".format(get_git_revision_short_hash()), prefix="  ")
-
         # set random seeds
         seed_from_config(config)
 
@@ -300,6 +295,13 @@ def main():
                         )
                 else:
                     job = Job.create(config, dataset)
+
+                # log configuration
+                config.log("Configuration:")
+                config.log(yaml.dump(config.options), prefix="  ")
+                config.log("git commit: {}".format(get_git_revision_short_hash()),
+                           prefix="  ")
+
                 job.run()
 
             # job.run()
