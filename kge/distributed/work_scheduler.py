@@ -13,7 +13,7 @@ from torch import multiprocessing as mp
 from torch import distributed as dist
 from enum import IntEnum
 from typing import Optional, Dict, Tuple, List
-from .misc import get_min_rank
+from .misc import get_min_rank, initialize_worker_groups
 from dataclasses import dataclass
 
 
@@ -118,22 +118,21 @@ class WorkScheduler(mp.get_context("fork").Process):
         # we have to have a huge timeout here, since it is only called after a complete
         #  epoch on a partition
         print("start scheduler with rank", self.rank, "world_size", self.world_size)
-        # fixme: this will time out if the epoch takes too long
-        #  we set the timeout to 6h for now
-        dist.init_process_group(
-            backend="gloo",
-            init_method="env://",
-            world_size=self.world_size,
-            rank=self.rank,
-            timeout=datetime.timedelta(hours=6),
-        )
+        # dist.init_process_group(
+        #     backend="gloo",
+        #     init_method="env://",
+        #     world_size=self.world_size,
+        #     rank=self.rank,
+        #     timeout=datetime.timedelta(hours=6),
+        # )
         # we need to create the worker group here as well it need to be defined in
         #  all processes
-        worker_ranks = list(range(self.min_rank, self.world_size))
-        worker_group = dist.new_group(worker_ranks, timeout=datetime.timedelta(hours=6))
-        num_eval_workers = self.config.get("job.distributed.num_eval_workers")
-        eval_worker_ranks = list(range(self.min_rank, self.min_rank + num_eval_workers))
-        eval_worker_group = dist.new_group(eval_worker_ranks, timeout=datetime.timedelta(hours=6))
+        initialize_worker_groups(self.config, self.rank)
+        # worker_ranks = list(range(self.min_rank, self.world_size))
+        # worker_group = dist.new_group(worker_ranks, timeout=datetime.timedelta(hours=6))
+        # num_eval_workers = self.config.get("job.distributed.num_eval_workers")
+        # eval_worker_ranks = list(range(self.min_rank, self.min_rank + num_eval_workers))
+        # eval_worker_group = dist.new_group(eval_worker_ranks, timeout=datetime.timedelta(hours=6))
         barrier_count = 0
         shutdown_count = 0
         epoch_time = None

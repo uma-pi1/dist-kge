@@ -8,6 +8,8 @@ except ImportError:
 from enum import IntEnum
 from torch import distributed as dist
 
+from kge.distributed.misc import get_min_rank, get_optimizer_dim, initialize_worker_groups
+
 
 class TORCH_PARAMETER_SERVER_CMDS(IntEnum):
     PULL_CMD = 0
@@ -131,33 +133,28 @@ class TorchParameterServer:
         self.data[keys, :] = set_data
 
 
-def init_lapse_scheduler(
-        servers, num_keys, master_ip, master_port, lapse_port, dist_world_size, min_rank
-):
+def init_lapse_scheduler(config, num_keys):
     # we are only initializing dist here to have the same ranks for lapse and torch
-    os.environ["MASTER_ADDR"] = master_ip
-    os.environ["MASTER_PORT"] = str(master_port)
+    os.environ["MASTER_ADDR"] = config.get("job.distributed.master_ip")
+    os.environ["MASTER_PORT"] = str(config.get("job.distributed.master_port"))
     os.environ["DMLC_NUM_WORKER"] = "0"
-    os.environ["DMLC_NUM_SERVER"] = str(servers)
+    os.environ["DMLC_NUM_SERVER"] = str(config.get("job.distributed.num_workers"))
     os.environ["DMLC_ROLE"] = "scheduler"
-    os.environ["DMLC_PS_ROOT_URI"] = master_ip
-    os.environ["DMLC_PS_ROOT_PORT"] = str(lapse_port)
+    os.environ["DMLC_PS_ROOT_URI"] = config.get("job.distributed.master_ip")
+    os.environ["DMLC_PS_ROOT_PORT"] = str(config.get("job.distributed.lapse_port"))
     num_workers_per_server = 1
     lapse.scheduler(num_keys, num_workers_per_server)
 
 
-def init_torch_server(num_clients, num_keys, dim, master_ip, master_port, min_rank, num_eval_workers):
+def init_torch_server(config, num_keys):
+    num_clients = config.get("job.distributed.num_workers")
+    min_rank = get_min_rank(config)
     world_size = num_clients + min_rank
-    os.environ["MASTER_ADDR"] = master_ip
-    os.environ["MASTER_PORT"] = master_port
-    dist.init_process_group(
-        backend="gloo", init_method="env://", world_size=world_size, rank=0,
-        timeout=datetime.timedelta(hours=6),
-    )
+    dim = config.get("lookup_embedder.dim")
+    optimizer_dim = get_optimizer_dim(config, dim)
+    os.environ["MASTER_ADDR"] = config.get("job.distributed.master_ip")
+    os.environ["MASTER_PORT"] = str(config.get("job.distributed.master_port"))
     # process groups need to be initialized in every process
-    worker_ranks = list(range(min_rank, num_clients + min_rank))
-    worker_group = dist.new_group(worker_ranks, timeout=datetime.timedelta(hours=6))
-    eval_worker_ranks = list(range(min_rank, min_rank + num_eval_workers))
-    eval_worker_group = dist.new_group(eval_worker_ranks,
-                                       timeout=datetime.timedelta(hours=6))
-    TorchParameterServer(world_size, num_keys, dim)
+    initialize_worker_groups(config, 0)
+
+    TorchParameterServer(world_size, num_keys, dim + optimizer_dim)

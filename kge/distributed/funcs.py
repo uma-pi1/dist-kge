@@ -1,4 +1,3 @@
-import os
 import time
 import logging
 import warnings
@@ -11,7 +10,7 @@ from kge import Config, Dataset
 from kge.distributed.parameter_server import init_torch_server, init_lapse_scheduler
 from kge.distributed.worker_process import WorkerProcessPool
 from kge.distributed.work_scheduler import WorkScheduler
-from kge.distributed.misc import get_optimizer_dim, get_min_rank
+from kge.distributed.misc import get_num_keys, get_optimizer_dim
 
 import torch
 from torch import multiprocessing as mp
@@ -95,6 +94,13 @@ def create_and_run_distributed(
         warnings.warn("Need to have at least one worker for training."
                       "Setting job.distribtued.num_workers to 1")
         config.set("job.distributed.num_workers", 1)
+    # setting num workers per machine to num workers if < 0
+    if config.get("job.distributed.num_workers_machine") <= 0:
+        config.set("job.distributed.num_workers_machine", config.get("job.distributed.num_workers"))
+    # setting already initialized workers if < 0
+    if config.get("job.distributed.already_init_workers") < 0:
+        config.set("job.distributed.already_init_workers",
+                   config.get("job.distributed.machine_id") * config.get("job.distributed.num_workers_machine"))
     # specific settings for valid only jobs
     if config.get("job.type") in ["valid", "test", "eval"]:
         config.set("job.distributed.parameter_server", "shared")
@@ -110,26 +116,7 @@ def create_and_run_distributed(
     )
     os.environ["GLOO_SOCKET_IFNAME"] = config.get("job.distributed.gloo_socket_ifname")
     processes = []
-    num_keys = dataset.num_entities() + dataset.num_relations()
-    num_meta_keys = 3
-    num_workers = config.get("job.distributed.num_workers")
-    master_ip = config.get("job.distributed.master_ip")
-    master_port = config.get("job.distributed.master_port")
-    lapse_port = config.get("job.distributed.lapse_port")
-    num_partitions = config.get("job.distributed.num_partitions")
-    min_rank = get_min_rank(config)
-    dist_world_size = num_workers + min_rank
-    dim = config.get("lookup_embedder.dim")
-    optimizer_dim = get_optimizer_dim(config, dim)
-    if config.get("train.optimizer.default.type") in [
-        "dist_adagrad",
-        "dist_rowadagrad",
-    ]:
-        #    num_keys *= 2
-        num_meta_keys += 2
-    # meta keys. contains for example a variable indicating whether to stop or
-    #  not
-    num_keys += num_meta_keys
+    num_keys = get_num_keys(config, dataset)
 
     if (
         config.get("job.distributed.repartition_epoch")
@@ -174,20 +161,13 @@ def create_and_run_distributed(
         monitoring_processes.append(gpu_monitor_process)
         gpu_monitor_process.start()
 
-
-
     if config.get("job.distributed.machine_id") == 0:
         if config.get("job.distributed.parameter_server") == "lapse":
             p = mp.Process(
                 target=init_lapse_scheduler,
                 args=(
-                    num_workers,
+                    config,
                     num_keys,
-                    master_ip,
-                    master_port,
-                    lapse_port,
-                    dist_world_size,
-                    min_rank,
                 ),
                 daemon=True,
             )
@@ -197,13 +177,8 @@ def create_and_run_distributed(
             p = mp.Process(
                 target=init_torch_server,
                 args=(
-                    num_workers,
+                    config,
                     num_keys,
-                    dim + optimizer_dim,
-                    master_ip,
-                    master_port,
-                    min_rank,
-                    config.get("job.distributed.num_eval_workers")
                 ),
                 daemon=True,
             )
@@ -226,21 +201,7 @@ def create_and_run_distributed(
         config.log(f"scheduler start took: {time.time()-scheduler_start_time}")
 
     # create all train-workers in a worker pool
-    num_workers = config.get("job.distributed.num_workers")
-    num_workers_machine = config.get("job.distributed.num_workers_machine")
-    if num_workers_machine <= 0:
-        num_workers_machine = num_workers
-    already_init_workers = config.get("job.distributed.already_init_workers")
-    if already_init_workers < 0:
-        already_init_workers = config.get("job.distributed.machine_id") * config.get("job.distributed.num_workers_machine")
     worker_process_pool = WorkerProcessPool(
-        num_workers,
-        num_workers_machine,
-        already_init_workers,
-        num_keys,
-        num_meta_keys,
-        dim,
-        optimizer_dim,
         config,
         dataset,
         checkpoint,

@@ -223,6 +223,8 @@ class TrainingOrEvaluationJob(Job):
             None
         """
         from kge.distributed.misc import get_min_rank
+        checkpoint = load_checkpoint(checkpoint_name)
+        self._load(checkpoint)
         self.parameter_client.barrier()
         if self.model is None:
             from kge.model import KgeModel

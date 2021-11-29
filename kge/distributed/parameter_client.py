@@ -8,13 +8,25 @@ except ImportError as e:
     LapseWorker=Mock  # just give something to inherit from
     LapseServer=Mock  # just give something to inherit from
     pass
-import numpy as np
 from typing import Optional
 from torch import distributed as dist
 from .parameter_server import TORCH_PARAMETER_SERVER_CMDS
+from .misc import get_num_meta_keys, initialize_worker_groups, get_optimizer_dim
 
 
 class KgeParameterClient:
+    def __init__(
+            self,
+            config,
+            rank,
+    ):
+        self.rank = rank
+        embedding_dim = config.get("lookup_embedder.dim")
+        optimizer_dim = get_optimizer_dim(config, embedding_dim)
+        self.dim = embedding_dim + optimizer_dim
+        self.num_meta_keys: int = get_num_meta_keys(config)
+        self.worker_group, self.eval_worker_group = initialize_worker_groups(config, self.rank)
+
     def pull(self, keys, pull_tensor=None, asynchronous=False):
         raise NotImplementedError()
 
@@ -44,43 +56,31 @@ class KgeParameterClient:
 
     @staticmethod
     def create(
-        client_type,
+        config,
         server_id,
         client_id,
-        embedding_dim,
         num_keys,
-        worker_group,
-        eval_worker_group,
         server=None,
-        num_meta_keys=0,
     ):
+        client_type = config.get("job.distributed.parameter_server")
         if client_type == "lapse":
             return LapseParameterClient(
+                config,
                 server_id,
                 rank=client_id,
                 lapse_server=server,  # in lapse we need to provide the actual server
-                dim=embedding_dim,
-                num_meta_keys=num_meta_keys,
-                worker_group=worker_group,
-                eval_worker_group=eval_worker_group,
             )
         elif client_type == "torch":
             return TorchParameterClient(
+                config=config,
                 server_rank=server_id,
                 rank=client_id,
-                dim=embedding_dim,
                 num_keys=num_keys,
-                num_meta_keys=num_meta_keys,
-                worker_group=worker_group,
-                eval_worker_group=eval_worker_group,
             )
         elif client_type == "shared":
             return SharedParameterClient(
+                config=config,
                 rank=client_id,
-                dim=embedding_dim,
-                num_meta_keys=num_meta_keys,
-                worker_group=worker_group,
-                eval_worker_group=eval_worker_group,
                 parameters=server,
             )
         else:
@@ -90,20 +90,14 @@ class KgeParameterClient:
 class LapseParameterClient(LapseWorker, KgeParameterClient):
     def __init__(
         self,
+        config,
         customer_id: int,
         rank: int,
         lapse_server: LapseServer,
-        dim,
-        num_meta_keys,
-        worker_group,
-        eval_worker_group
     ):
-        super(LapseParameterClient, self).__init__(customer_id, rank, lapse_server)
-        self.worker_group = worker_group
-        self.eval_worker_group = eval_worker_group
-        self.rank = rank
-        self.num_meta_keys = num_meta_keys
-        self.dim = dim
+        KgeParameterClient.__init__(self, config, rank)
+        # super(LapseParameterClient, self).__init__(customer_id, rank, lapse_server)
+        LapseWorker.__init__(self, customer_id, rank, lapse_server)
         self.key_size = self.get_key_size()
         self._stop_key = torch.LongTensor([self.num_keys - self.num_meta_keys])
         self._optim_entity_step_key = torch.LongTensor(
@@ -193,18 +187,14 @@ class LapseParameterClient(LapseWorker, KgeParameterClient):
 
 
 class TorchParameterClient(KgeParameterClient):
-    def __init__(self, server_rank, rank, dim, num_keys, num_meta_keys, worker_group, eval_worker_group):
+    def __init__(self, config, server_rank, rank, num_keys):
+        KgeParameterClient.__init__(self, config, rank)
         self.server_rank = server_rank
-        self.rank = rank
-        self.dim = dim
         self.num_keys = num_keys
-        self.num_meta_keys = num_meta_keys
         self.data_type = torch.float32
         self.lr_buffer = torch.zeros(1, dtype=torch.float32)
         self._stop_key = torch.LongTensor([self.num_keys - self.num_meta_keys])
         self._stop_value_tensor = torch.zeros((1, self.dim), dtype=torch.float32)
-        self.worker_group = worker_group
-        self.eval_worker_group = eval_worker_group
 
     def pull(self, keys, pull_tensor=None, asynchronous=False):
         cmd = torch.LongTensor([TORCH_PARAMETER_SERVER_CMDS.PULL_CMD, len(keys)])
@@ -287,16 +277,12 @@ class TorchParameterClient(KgeParameterClient):
 
 
 class SharedParameterClient(KgeParameterClient):
-    def __init__(self, rank, dim, num_meta_keys, worker_group, eval_worker_group, parameters):
+    def __init__(self, config, rank, parameters):
+        KgeParameterClient.__init__(self, config, rank)
         self.parameters = parameters
         self.num_keys = len(parameters)
-        self.rank = rank
-        self.dim = dim
         self.data_type = torch.float32
         self.lr_buffer = torch.zeros(1, dtype=torch.float32)
-        self.worker_group = worker_group
-        self.eval_worker_group = eval_worker_group
-        self.num_meta_keys = num_meta_keys
         self._stop_key = torch.LongTensor([self.num_keys - self.num_meta_keys])
         self._optim_entity_step_key = torch.LongTensor(
             [self.num_keys - self.num_meta_keys + 1]
