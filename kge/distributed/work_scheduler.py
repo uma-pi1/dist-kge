@@ -92,9 +92,13 @@ class WorkScheduler(mp.get_context("fork").Process):
     @staticmethod
     def create(
         config,
-        partition_type,
         dataset,
     ):
+        if config.get("job.type") != "train":
+            partition_type = "random"
+        else:
+            partition_type = config.get("job.distributed.partition_type")
+
         if partition_type == "random":
             return RandomWorkScheduler(config=config, dataset=dataset)
         elif partition_type == "relation":

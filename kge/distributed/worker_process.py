@@ -120,6 +120,8 @@ class WorkerProcess(mp.get_context("spawn").Process):
         # create parameter server
         server = None
         if self.config.get("job.distributed.parameter_server") == "lapse":
+            embedding_dim = self.config.get("lookup_embedder.dim")
+            optimizer_dim = get_optimizer_dim(self.config, embedding_dim)
             os.environ["DMLC_NUM_WORKER"] = "0"
             os.environ["DMLC_NUM_SERVER"] = str(self.config.get(
                 "job.distributed.num_workers"
@@ -134,7 +136,7 @@ class WorkerProcess(mp.get_context("spawn").Process):
 
             num_workers_per_server = 1
             lapse.setup(self.num_keys, num_workers_per_server)
-            server = lapse.Server(self.num_keys, self.embedding_dim + self.optimizer_dim)
+            server = lapse.Server(self.num_keys, embedding_dim + optimizer_dim)
         elif self.config.get("job.distributed.parameter_server") == "shared":
             server = self.parameters
 

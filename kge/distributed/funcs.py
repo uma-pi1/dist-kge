@@ -186,13 +186,9 @@ def create_and_run_distributed(
             p.start()
 
         # create a work scheduler
-        if config.get("job.type") != "train":
-            partition_type = "random"
-        else:
-            partition_type = config.get("job.distributed.partition_type")
         print("init scheduler")
         scheduler_init_time = time.time()
-        scheduler = WorkScheduler.create(config=config, partition_type=partition_type, dataset=dataset)
+        scheduler = WorkScheduler.create(config=config, dataset=dataset)
         config.log(f"scheduler initialized after: {time.time()-scheduler_init_time}")
         print("start scheduler")
         scheduler_start_time = time.time()
