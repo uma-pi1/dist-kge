@@ -1,5 +1,3 @@
-import os
-import datetime
 import torch
 try:
     import lapse
@@ -8,7 +6,8 @@ except ImportError:
 from enum import IntEnum
 from torch import distributed as dist
 
-from kge.distributed.misc import get_min_rank, get_optimizer_dim, initialize_worker_groups
+from kge.distributed.misc import get_min_rank, get_optimizer_dim, initialize_worker_groups, set_dmlc_environment, \
+    set_master_environment
 
 
 class TORCH_PARAMETER_SERVER_CMDS(IntEnum):
@@ -33,16 +32,15 @@ class KgeParameterServer:
 
 class LapseParameterServer:
     @staticmethod
-    def get_parameter_server(num_keys, key_size, num_servers, ip, port):
+    def get_parameter_server(config, num_keys):
         """In Lapse we have a server for every worker, therefore we don't use a lock"""
-        os.environ["DMLC_NUM_WORKER"] = "0"
-        os.environ["DMLC_NUM_SERVER"] = str(num_servers)
-        os.environ["DMLC_ROLE"] = "server"
-        os.environ["DMLC_PS_ROOT_URI"] = ip
-        os.environ["DMLC_PS_ROOT_PORT"] = port
+        set_dmlc_environment(config, role="server")
+
+        embedding_dim = config.get("lookup_embedder.dim")
+        optimizer_dim = get_optimizer_dim(config, embedding_dim)
         num_workers_per_server = 1
         lapse.setup(num_keys, num_workers_per_server)
-        return lapse.Server(num_keys, key_size)
+        return lapse.Server(num_keys, embedding_dim + optimizer_dim)
 
 
 class TorchParameterServer:
@@ -135,13 +133,8 @@ class TorchParameterServer:
 
 def init_lapse_scheduler(config, num_keys):
     # we are only initializing dist here to have the same ranks for lapse and torch
-    os.environ["MASTER_ADDR"] = config.get("job.distributed.master_ip")
-    os.environ["MASTER_PORT"] = str(config.get("job.distributed.master_port"))
-    os.environ["DMLC_NUM_WORKER"] = "0"
-    os.environ["DMLC_NUM_SERVER"] = str(config.get("job.distributed.num_workers"))
-    os.environ["DMLC_ROLE"] = "scheduler"
-    os.environ["DMLC_PS_ROOT_URI"] = config.get("job.distributed.master_ip")
-    os.environ["DMLC_PS_ROOT_PORT"] = str(config.get("job.distributed.lapse_port"))
+    set_master_environment(config)
+    set_dmlc_environment(config, role="scheduler")
     num_workers_per_server = 1
     lapse.scheduler(num_keys, num_workers_per_server)
 
@@ -152,8 +145,7 @@ def init_torch_server(config, num_keys):
     world_size = num_clients + min_rank
     dim = config.get("lookup_embedder.dim")
     optimizer_dim = get_optimizer_dim(config, dim)
-    os.environ["MASTER_ADDR"] = config.get("job.distributed.master_ip")
-    os.environ["MASTER_PORT"] = str(config.get("job.distributed.master_port"))
+    set_master_environment(config)
     # process groups need to be initialized in every process
     initialize_worker_groups(config, 0)
 

@@ -10,7 +10,7 @@ from kge import Config, Dataset
 from kge.distributed.parameter_server import init_torch_server, init_lapse_scheduler
 from kge.distributed.worker_process import WorkerProcessPool
 from kge.distributed.work_scheduler import WorkScheduler
-from kge.distributed.misc import get_num_keys, get_optimizer_dim
+from kge.distributed.misc import get_num_keys
 
 import torch
 from torch import multiprocessing as mp
@@ -115,8 +115,6 @@ def create_and_run_distributed(
         config.get("job.distributed.num_threads_per_process")
     )
     os.environ["GLOO_SOCKET_IFNAME"] = config.get("job.distributed.gloo_socket_ifname")
-    processes = []
-    num_keys = get_num_keys(config, dataset)
 
     if (
         config.get("job.distributed.repartition_epoch")
@@ -162,6 +160,7 @@ def create_and_run_distributed(
         gpu_monitor_process.start()
 
     if config.get("job.distributed.machine_id") == 0:
+        num_keys = get_num_keys(config, dataset)
         if config.get("job.distributed.parameter_server") == "lapse":
             p = mp.Process(
                 target=init_lapse_scheduler,

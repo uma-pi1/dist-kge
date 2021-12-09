@@ -1,19 +1,17 @@
-import os
 import math
-import datetime
 import time
 import numpy as np
 import numba
 import torch
-from collections import deque, OrderedDict, defaultdict
+from collections import deque, defaultdict
 from copy import deepcopy
 from kge.misc import set_seeds
 from kge.distributed.stratification_schedule_creator import StratificationScheduleCreator
 from torch import multiprocessing as mp
 from torch import distributed as dist
 from enum import IntEnum
-from typing import Optional, Dict, Tuple, List
-from .misc import get_min_rank, initialize_worker_groups
+from typing import Optional, Dict, Tuple
+from .misc import get_min_rank, initialize_worker_groups, set_master_environment
 from dataclasses import dataclass
 
 
@@ -56,8 +54,6 @@ class WorkScheduler(mp.get_context("fork").Process):
         self.rank = self.min_rank - 1
         self.num_clients = config.get("job.distributed.num_workers")
         self.world_size = self.num_clients + self.min_rank
-        self.master_ip = config.get("job.distributed.master_ip")
-        self.master_port = config.get("job.distributed.master_port")
         self.num_partitions = config.get("job.distributed.num_partitions")
         self.done_workers = []
         self.asking_workers = []
@@ -117,26 +113,13 @@ class WorkScheduler(mp.get_context("fork").Process):
     def run(self):
         self._init_in_started_process()
         set_seeds(config=self.config)
-        os.environ["MASTER_ADDR"] = self.master_ip
-        os.environ["MASTER_PORT"] = str(self.master_port)
+        set_master_environment(self.config)
         # we have to have a huge timeout here, since it is only called after a complete
         #  epoch on a partition
         print("start scheduler with rank", self.rank, "world_size", self.world_size)
-        # dist.init_process_group(
-        #     backend="gloo",
-        #     init_method="env://",
-        #     world_size=self.world_size,
-        #     rank=self.rank,
-        #     timeout=datetime.timedelta(hours=6),
-        # )
         # we need to create the worker group here as well it need to be defined in
         #  all processes
         initialize_worker_groups(self.config, self.rank)
-        # worker_ranks = list(range(self.min_rank, self.world_size))
-        # worker_group = dist.new_group(worker_ranks, timeout=datetime.timedelta(hours=6))
-        # num_eval_workers = self.config.get("job.distributed.num_eval_workers")
-        # eval_worker_ranks = list(range(self.min_rank, self.min_rank + num_eval_workers))
-        # eval_worker_group = dist.new_group(eval_worker_ranks, timeout=datetime.timedelta(hours=6))
         barrier_count = 0
         shutdown_count = 0
         epoch_time = None

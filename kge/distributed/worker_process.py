@@ -1,22 +1,15 @@
 import os
 import gc
 import datetime
-import torch  # import torch before lapse
-try:
-    import lapse
-except ImportError:
-    pass
-from typing import Optional, Dict
+from typing import Optional
 from copy import deepcopy
 from torch import multiprocessing as mp
-from torch import distributed as dist
 
 from kge.misc import set_seeds
 from kge.job import Job
-from kge.util.io import load_checkpoint
 from .parameter_client import KgeParameterClient
-from .misc import get_min_rank, get_num_keys, get_optimizer_dim, initialize_worker_groups
-
+from .parameter_server import LapseParameterServer
+from .misc import get_min_rank, get_num_keys, get_optimizer_dim, set_master_environment
 
 class WorkerProcessPool:
     """
@@ -112,31 +105,14 @@ class WorkerProcess(mp.get_context("spawn").Process):
         # seeds need to be set in every process
         set_seeds(self.config, self.rank)
 
-        os.environ["MASTER_ADDR"] = self.config.get("job.distributed.master_ip")
-        os.environ["MASTER_PORT"] = str(self.config.get("job.distributed.master_port"))
+        set_master_environment(self.config)
         min_rank = get_min_rank(self.config)
         print("before init", self.rank + min_rank)
 
         # create parameter server
         server = None
         if self.config.get("job.distributed.parameter_server") == "lapse":
-            embedding_dim = self.config.get("lookup_embedder.dim")
-            optimizer_dim = get_optimizer_dim(self.config, embedding_dim)
-            os.environ["DMLC_NUM_WORKER"] = "0"
-            os.environ["DMLC_NUM_SERVER"] = str(self.config.get(
-                "job.distributed.num_workers"
-            ))
-            os.environ["DMLC_ROLE"] = "server"
-            os.environ["DMLC_PS_ROOT_URI"] = self.config.get(
-                "job.distributed.master_ip"
-            )
-            os.environ["DMLC_PS_ROOT_PORT"] = str(self.config.get(
-                "job.distributed.lapse_port"
-            ))
-
-            num_workers_per_server = 1
-            lapse.setup(self.num_keys, num_workers_per_server)
-            server = lapse.Server(self.num_keys, embedding_dim + optimizer_dim)
+            server = LapseParameterServer.get_parameter_server(self.config, self.num_keys)
         elif self.config.get("job.distributed.parameter_server") == "shared":
             server = self.parameters
 
@@ -165,9 +141,6 @@ class WorkerProcess(mp.get_context("spawn").Process):
             init_for_load_only=init_for_load_only,
         )
         if self.checkpoint_name is not None:
-            # moved to load_distributed
-            # checkpoint = load_checkpoint(self.checkpoint_name)
-            # job._load(checkpoint)
             job.load_distributed(checkpoint_name=self.checkpoint_name)
 
         job.run()

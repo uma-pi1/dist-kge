@@ -96,7 +96,6 @@ class LapseParameterClient(LapseWorker, KgeParameterClient):
         lapse_server: LapseServer,
     ):
         KgeParameterClient.__init__(self, config, rank)
-        # super(LapseParameterClient, self).__init__(customer_id, rank, lapse_server)
         LapseWorker.__init__(self, customer_id, rank, lapse_server)
         self.key_size = self.get_key_size()
         self._stop_key = torch.LongTensor([self.num_keys - self.num_meta_keys])

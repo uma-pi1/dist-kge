@@ -1,4 +1,5 @@
 import datetime
+import os
 
 from torch import distributed as dist
 
@@ -31,7 +32,7 @@ def get_optimizer_dim(config: Config, dim):
     return optimizer_dim
 
 
-def get_num_meta_keys(config):
+def get_num_meta_keys(config: Config):
     num_meta_keys = 3
     if config.get("train.optimizer.default.type") in [
         "dist_adagrad",
@@ -41,27 +42,13 @@ def get_num_meta_keys(config):
     return num_meta_keys
 
 
-def get_num_keys(config, dataset):
+def get_num_keys(config: Config, dataset):
     num_keys = dataset.num_entities() + dataset.num_relations()
     num_keys += get_num_meta_keys(config)
     return num_keys
 
 
-# def get_num_keys(config, dataset):
-#     num_keys = dataset.num_entities() + dataset.num_relations()
-#     num_meta_keys = 3
-#     if config.get("train.optimizer.default.type") in [
-#         "dist_adagrad",
-#         "dist_rowadagrad",
-#     ]:
-#         #    num_keys *= 2
-#         num_meta_keys += 2
-#     num_keys += num_meta_keys
-#
-#     return get_num_keys(config, dataset), get_num_meta_keys(config)
-
-
-def initialize_worker_groups(config, rank):
+def initialize_worker_groups(config: Config, rank):
     min_rank = get_min_rank(config)
     world_size = config.get("job.distributed.num_workers") + min_rank
     dist.init_process_group(
@@ -77,3 +64,22 @@ def initialize_worker_groups(config, rank):
     eval_worker_ranks = list(range(min_rank, num_eval_workers + min_rank))
     eval_worker_group = dist.new_group(eval_worker_ranks, timeout=datetime.timedelta(hours=6))
     return worker_group, eval_worker_group
+
+
+def set_master_environment(config: Config):
+    os.environ["MASTER_ADDR"] = config.get("job.distributed.master_ip")
+    os.environ["MASTER_PORT"] = str(config.get("job.distributed.master_port"))
+
+
+def set_dmlc_environment(config: Config, role):
+    os.environ["DMLC_NUM_WORKER"] = "0"
+    os.environ["DMLC_NUM_SERVER"] = str(config.get(
+        "job.distributed.num_workers"
+    ))
+    os.environ["DMLC_ROLE"] = role
+    os.environ["DMLC_PS_ROOT_URI"] = config.get(
+        "job.distributed.master_ip"
+    )
+    os.environ["DMLC_PS_ROOT_PORT"] = str(config.get(
+        "job.distributed.lapse_port"
+    ))
