@@ -59,6 +59,7 @@ job:
     repartition_epoch: True  # currently only works with stratification and random
     pre_localize_partition: False
     pre_localize_batch: False # pre localize entities in batch one batch ahead
+    scheduler_data_type: int32 # torch type used for communication of the work scheduler
 
     stratification:
       # not all the entities in a strata are used ("active") for the positives

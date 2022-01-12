@@ -15,6 +15,14 @@ from .misc import get_min_rank, initialize_worker_groups, set_master_environment
 from dataclasses import dataclass
 
 
+TORCH_TO_NP_DTYPE = {
+    torch.long: np.long,
+    torch.int64: np.long,
+    torch.int32: np.int32,
+    torch.int: np.int32,
+}
+
+
 class SCHEDULER_CMDS(IntEnum):
     GET_WORK = 0
     WORK_DONE = 1
@@ -63,6 +71,9 @@ class WorkScheduler(mp.get_context("fork").Process):
         self.init_up_to_entity = -1
         self.num_processed_partitions = 0
         self.eval_hists = []
+        if config.get("job.distributed.scheduler_data_type") not in ["int", "int32", "int64", "long"]:
+            raise ValueError("Only long and int is supported as dtype for the scheduler communication")
+        self.data_type = getattr(torch, config.get("job.distributed.scheduler_data_type"))
         if self.repartition_epoch:
             self.repartition_future = None
             self.repartition_worker_pool = None
@@ -72,7 +83,7 @@ class WorkScheduler(mp.get_context("fork").Process):
         self._define_local_entities()
 
     def _define_local_entities(self):
-        entity_keys = torch.arange(self.dataset.num_entities(), dtype=torch.long)
+        entity_keys = torch.arange(self.dataset.num_entities(), dtype=self.data_type)
         local_entities = entity_keys[torch.randperm(len(entity_keys))].chunk(self.num_clients)
         self.local_entities = dict(zip(range(self.min_rank, self.min_rank + self.num_clients), local_entities))
 
@@ -131,7 +142,7 @@ class WorkScheduler(mp.get_context("fork").Process):
 
         while True:
             # cmd_buffer consists of cmd_number, key_len
-            cmd_buffer = torch.full((2,), -1, dtype=torch.long)
+            cmd_buffer = torch.full((2,), -1, dtype=self.data_type)
 
             # refill work and distribute to all asking workers
             if len(self.done_workers) == self.num_clients:
@@ -148,7 +159,6 @@ class WorkScheduler(mp.get_context("fork").Process):
 
             rank = dist.recv(cmd_buffer)
             cmd = cmd_buffer[0].item()
-            key_len = cmd_buffer[1].item()
             if cmd == SCHEDULER_CMDS.GET_WORK:
                 if epoch_time is None:
                     epoch_time = -time.time()
@@ -251,7 +261,7 @@ class WorkScheduler(mp.get_context("fork").Process):
     def _handle_init_info(self, rank):
         max_entities = self._get_max_entities()
         max_relations = self._get_max_relations()
-        init_data = torch.LongTensor([max_entities, max_relations])
+        init_data = torch.tensor([max_entities, max_relations], dtype=self.data_type)
         dist.send(init_data, dst=rank)
 
     def _handle_get_init_work(self, rank, embedding_layer_size):
@@ -259,7 +269,7 @@ class WorkScheduler(mp.get_context("fork").Process):
             print("initialize parameter server")
         self.init_up_to_entity += 1
         if self.init_up_to_entity >= self.dataset.num_entities():
-            return_buffer = torch.LongTensor([-1, -1])
+            return_buffer = torch.tensor([-1, -1], dtype=self.data_type)
         else:
             entity_range_end = min(
                 self.dataset.num_entities(),
@@ -267,12 +277,12 @@ class WorkScheduler(mp.get_context("fork").Process):
             )
             if entity_range_end == self.dataset.num_entities():
                 print("parameter server initialized")
-            return_buffer = torch.LongTensor([self.init_up_to_entity, entity_range_end])
+            return_buffer = torch.tensor([self.init_up_to_entity, entity_range_end], dtype=self.data_type)
         self.init_up_to_entity += embedding_layer_size
         dist.send(return_buffer, dst=rank)
 
     def _handle_get_local_entities(self, rank):
-        size_information = torch.LongTensor([len(self.local_entities[rank]), -1])
+        size_information = torch.tensor([len(self.local_entities[rank]), -1], dtype=self.data_type)
         dist.send(size_information, dst=rank)
         dist.send(self.local_entities[rank], dst=rank)
 
@@ -285,7 +295,7 @@ class WorkScheduler(mp.get_context("fork").Process):
         if len(self.eval_hists) == 0:
             first_eval = True
         for j in range(num_sub_hists):
-            ranks = torch.empty(self.dataset.num_entities())
+            ranks = torch.empty(self.dataset.num_entities(), dtype=self.data_type)
             dist.recv(ranks, src=rank)
             if first_eval:
                 self.eval_hists.append(ranks)
@@ -336,7 +346,7 @@ class RandomWorkScheduler(WorkScheduler):
 
     def _load_partitions(self, num_partitions):
         num_triples = len(self.dataset.split("train"))
-        permuted_triple_index = torch.from_numpy(np.random.permutation(num_triples))
+        permuted_triple_index = torch.randperm(num_triples, dtype=self.data_type)
         partitions = list(torch.chunk(permuted_triple_index, num_partitions))
         partitions = [p.clone() for p in partitions]
         return partitions
@@ -382,20 +392,22 @@ class RelationWorkScheduler(WorkScheduler):
             return WorkPackage()
 
     def _load_partitions(self, num_partitions):
+        np_type = TORCH_TO_NP_DTYPE[self.data_type]
         partition_assignment = self.dataset.load_train_partitions(num_partitions)
         # todo: let the partitions start at zero, then we do not need this unique
         partition_indexes = np.unique(partition_assignment)
         partitions = [
-            torch.from_numpy(np.where(partition_assignment == i)[0]).contiguous()
+            torch.from_numpy(np.where(partition_assignment == i)[0].astype(np_type)).contiguous()
             for i in partition_indexes
         ]
         return partitions
 
     def _get_relations_in_partition(self):
+        np_type = TORCH_TO_NP_DTYPE[self.data_type]
         relations_in_partition = dict()
         for partition in range(self.num_partitions):
             relations_in_partition[partition] = torch.from_numpy(
-                np.where((self.relations_to_partition == partition),)[0]
+                np.where((self.relations_to_partition == partition),)[0].astype(np_type)
             ).contiguous()
         return relations_in_partition
 
@@ -451,20 +463,22 @@ class GraphCutWorkScheduler(WorkScheduler):
             return WorkPackage()
 
     def _load_partitions(self, num_partitions):
+        np_type = TORCH_TO_NP_DTYPE[self.data_type]
         partition_assignment = self.dataset.load_train_partitions(num_partitions)
         # todo: let the partitions start at zero, then we do not need this unique
         partition_indexes = np.unique(partition_assignment)
         partitions = [
-            torch.from_numpy(np.where(partition_assignment == i)[0]).contiguous()
+            torch.from_numpy(np.where(partition_assignment == i)[0].astype(np_type)).contiguous()
             for i in partition_indexes
         ]
         return partitions
 
     def _get_entities_in_partition(self):
+        np_type = TORCH_TO_NP_DTYPE[self.data_type]
         entities_in_partition = dict()
         for partition in range(self.num_partitions):
             entities_in_partition[partition] = torch.from_numpy(
-                np.where((self.entities_to_partition == partition),)[0]
+                np.where((self.entities_to_partition == partition),)[0].astype(np_type)
             ).contiguous()
         return entities_in_partition
 
@@ -515,6 +529,7 @@ class StratificationWorkScheduler(WorkScheduler):
             self.dataset.split("train"),
             self.entities_needed_only,
             self.combine_mirror_blocks,
+            TORCH_TO_NP_DTYPE[self.data_type]
         )
         if not self.fixed_schedule:
             self.work_to_do: Dict[Tuple[int, int], torch.Tensor] = self._order_by_schedule(
@@ -551,6 +566,7 @@ class StratificationWorkScheduler(WorkScheduler):
         num_partitions,
         entities_needed_only=True,
         combine_mirror_blocks=True,
+        np_type=np.long,
     ):
         """
         This needs to be a static method so that we can pickle and run in background
@@ -598,6 +614,7 @@ class StratificationWorkScheduler(WorkScheduler):
             data.numpy(),
             entities_needed_only,
             combine_mirror_blocks,
+            np_type
         )
         print("repartitioning done")
         print("repartition_time", start + time.time())
@@ -610,6 +627,7 @@ class StratificationWorkScheduler(WorkScheduler):
         data,
         entities_needed_only,
         combine_mirror_blocks,
+        np_type,
     ):
         entities_in_strata = dict()
         if entities_needed_only:
@@ -628,14 +646,14 @@ class StratificationWorkScheduler(WorkScheduler):
                     # datasets when run in background, use numpy instead
                     combined_strata_data = np.concatenate((strata_data, mirror_data))
                     unique_entities = torch.from_numpy(
-                        np.unique(data[combined_strata_data][:, [0, 2]]).astype(np.long)
+                        np.unique(data[combined_strata_data][:, [0, 2]]).astype(np_type)
                     ).contiguous()
                     entities_in_strata[strata] = unique_entities
                     entities_in_strata[mirror_strata] = unique_entities
                 else:
                     # np.unique is slightly faster than torch.unique
                     entities_in_strata[strata] = torch.from_numpy(
-                        np.unique(data[strata_data][:, [0, 2]]).astype(np.long)
+                        np.unique(data[strata_data][:, [0, 2]]).astype(np_type)
                     ).contiguous()
         else:
             for strata in partitions.keys():
@@ -653,7 +671,7 @@ class StratificationWorkScheduler(WorkScheduler):
                             (entities_to_partition == strata[0]),
                             (entities_to_partition == mirror_strata[0]),
                         )
-                    )[0]
+                    )[0].astype(np_type)
                 ).contiguous()
                 entities_in_strata[strata] = entities
                 entities_in_strata[mirror_strata] = entities
@@ -828,6 +846,7 @@ class StratificationWorkScheduler(WorkScheduler):
                 self.num_partitions,
                 self.entities_needed_only,
                 self.combine_mirror_blocks,
+                TORCH_TO_NP_DTYPE[self.data_type],
             ),
         )
 
@@ -846,8 +865,7 @@ class StratificationWorkScheduler(WorkScheduler):
         print("partition load time", time.time() - start)
         return partitions
 
-    @staticmethod
-    def _construct_partitions(partition_assignment, num_partitions):
+    def _construct_partitions(self, partition_assignment, num_partitions):
         (
             partition_indexes,
             partition_data,
@@ -858,7 +876,7 @@ class StratificationWorkScheduler(WorkScheduler):
             (i, j) for i in range(num_partitions) for j in range(num_partitions)
         ]
         partition_data = [
-            torch.from_numpy(data).long().contiguous() for data in partition_data
+            torch.from_numpy(data).to(self.data_type).contiguous() for data in partition_data
         ]
         partitions = dict(zip(partition_indexes, partition_data))
         return partitions
@@ -1035,32 +1053,35 @@ class SchedulerClient:
     def __init__(self, config):
         self.scheduler_rank = get_min_rank(config) - 1
         self.machine_id = config.get("job.distributed.machine_id")
+        if config.get("job.distributed.scheduler_data_type") not in ["int", "int32", "int64", "long"]:
+            raise ValueError("Only long and int is supported as dtype for the scheduler communication")
+        self.data_type = getattr(torch, config.get("job.distributed.scheduler_data_type"))
 
     def get_init_info(self):
-        cmd = torch.LongTensor([SCHEDULER_CMDS.INIT_INFO, 0])
+        cmd = torch.tensor([SCHEDULER_CMDS.INIT_INFO, 0], dtype=self.data_type)
         dist.send(cmd, dst=self.scheduler_rank)
-        info_buffer = torch.zeros((2,), dtype=torch.long)
+        info_buffer = torch.zeros((2,), dtype=self.data_type)
         dist.recv(info_buffer, src=self.scheduler_rank)
         max_entities = info_buffer[0]
         max_relations = info_buffer[1]
         return max_entities, max_relations
 
     def _receive_work(self, cmd):
-        work_buffer = torch.empty((cmd[1].item(),), dtype=torch.long)
+        work_buffer = torch.empty((cmd[1].item(),), dtype=self.data_type)
         dist.recv(work_buffer, src=self.scheduler_rank)
         # get partition entities
         dist.recv(cmd, src=self.scheduler_rank)
         num_entities = cmd[1].item()
         entity_buffer = None
         if num_entities != 0:
-            entity_buffer = torch.empty((num_entities,), dtype=torch.long)
+            entity_buffer = torch.empty((num_entities,), dtype=self.data_type)
             dist.recv(entity_buffer, src=self.scheduler_rank)
         # get partition relations
         dist.recv(cmd, src=self.scheduler_rank)
         num_relations = cmd[1].item()
         relation_buffer = None
         if num_relations != 0:
-            relation_buffer = torch.empty((num_relations,), dtype=torch.long)
+            relation_buffer = torch.empty((num_relations,), dtype=self.data_type)
             dist.recv(relation_buffer, src=self.scheduler_rank)
         return work_buffer, entity_buffer, relation_buffer
 
@@ -1068,7 +1089,7 @@ class SchedulerClient:
         self,
     ) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
         while True:
-            cmd = torch.LongTensor([SCHEDULER_CMDS.GET_WORK, self.machine_id])
+            cmd = torch.tensor([SCHEDULER_CMDS.GET_WORK, self.machine_id], dtype=self.data_type)
             dist.send(cmd, dst=self.scheduler_rank)
             dist.recv(cmd, src=self.scheduler_rank)
             if cmd[0] == SCHEDULER_CMDS.WORK:
@@ -1080,7 +1101,7 @@ class SchedulerClient:
                 return None, None, None
 
     def get_pre_localize_work(self):
-        cmd = torch.LongTensor([SCHEDULER_CMDS.PRE_LOCALIZE_WORK, self.machine_id])
+        cmd = torch.tensor([SCHEDULER_CMDS.PRE_LOCALIZE_WORK, self.machine_id], dtype=self.data_type)
         dist.send(cmd, dst=self.scheduler_rank)
         dist.recv(cmd, src=self.scheduler_rank)
         if cmd[0] == SCHEDULER_CMDS.WORK:
@@ -1102,16 +1123,16 @@ class SchedulerClient:
             tensor containing range from start and end entity id
 
         """
-        cmd = torch.LongTensor([SCHEDULER_CMDS.GET_INIT_WORK, entity_embedder_size])
+        cmd = torch.tensor([SCHEDULER_CMDS.GET_INIT_WORK, entity_embedder_size], dtype=self.data_type)
         dist.send(cmd, dst=self.scheduler_rank)
         dist.recv(cmd, src=self.scheduler_rank)
         if cmd[0] > -1:
-            return torch.arange(cmd[0], cmd[1], dtype=torch.long)
+            return torch.arange(cmd[0], cmd[1], dtype=self.data_type)
         return None
 
     def register_eval_result(self, hist: dict, hist_filt: dict, hist_filt_test: dict):
         hists = [hist, hist_filt, hist_filt_test]
-        cmd = torch.LongTensor([SCHEDULER_CMDS.REGISTER_EVAL_RESULT, sum(len(h) for h in hists)])
+        cmd = torch.tensor([SCHEDULER_CMDS.REGISTER_EVAL_RESULT, sum(len(h) for h in hists)], dtype=self.data_type)
         dist.send(cmd, dst=self.scheduler_rank)
         for h in hists:
             for v in h.values():
@@ -1119,30 +1140,30 @@ class SchedulerClient:
                 dist.send(ranks, dst=self.scheduler_rank)
 
     def get_eval_result(self, hist: dict, hist_filt: dict, hist_filt_test: dict):
-        cmd = torch.LongTensor([SCHEDULER_CMDS.GET_EVAL_RESULT, -1])
+        cmd = torch.tensor([SCHEDULER_CMDS.GET_EVAL_RESULT, -1], dtype=self.data_type)
         dist.send(cmd, dst=self.scheduler_rank)
         hists = [hist, hist_filt, hist_filt_test]
         for h in hists:
             for key, values in h.items():
-                ranks = torch.empty(len(values))
+                ranks = torch.empty(len(values), dtype=self.data_type)
                 dist.recv(ranks, src=self.scheduler_rank)
                 h[key] = ranks
         return hist, hist_filt, hist_filt_test
 
     def get_local_entities(self):
-        cmd = torch.LongTensor([SCHEDULER_CMDS.GET_LOCAL_ENT, -1])
+        cmd = torch.tensor([SCHEDULER_CMDS.GET_LOCAL_ENT, -1], dtype=self.data_type)
         dist.send(cmd, dst=self.scheduler_rank)
         dist.recv(cmd, src=self.scheduler_rank)
         if cmd[0] > 0:
-            local_entities = torch.empty([cmd[0], ], dtype=torch.long)
+            local_entities = torch.empty([cmd[0], ], dtype=self.data_type)
             dist.recv(local_entities, src=self.scheduler_rank)
-            return local_entities
+            return local_entities.long()
         return None
 
     def work_done(self):
-        cmd = torch.LongTensor([SCHEDULER_CMDS.WORK_DONE, self.machine_id])
+        cmd = torch.tensor([SCHEDULER_CMDS.WORK_DONE, self.machine_id], dtype=self.data_type)
         dist.send(cmd, dst=self.scheduler_rank)
 
     def shutdown(self):
-        cmd = torch.LongTensor([SCHEDULER_CMDS.SHUTDOWN, self.machine_id])
+        cmd = torch.tensor([SCHEDULER_CMDS.SHUTDOWN, self.machine_id], dtype=self.data_type)
         dist.send(cmd, dst=self.scheduler_rank)
