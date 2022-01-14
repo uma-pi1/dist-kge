@@ -1,7 +1,7 @@
 # Dist-KGE: A knowledge graph embedding library for multi-GPU and multi-machine training
 
 
-This is the code and configuration accompanying the paper "Parallel Training of Knowledge Graph Embedding Models: A Comparison of Techniques".
+This is the code and configuration accompanying the paper ["Parallel Training of Knowledge Graph Embedding Models: A Comparison of Techniques"](https://www.uni-mannheim.de/media/Einrichtungen/dws/Files_People/Profs/rgemulla/publications/kochsiek22parallelkge.pdf).
 The code extends the knowledge graph embedding library [LibKGE](https://github.com/uma-pi1/kge).
 For documentation on LibKGE refer to LibKGE repository.
 We provide the hyper-parameter settings for the experiments in their corresponding configuration files.
