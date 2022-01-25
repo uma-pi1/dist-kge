@@ -3,6 +3,7 @@ import gc
 import datetime
 from typing import Optional
 from copy import deepcopy
+import torch
 from torch import multiprocessing as mp
 
 from kge.misc import set_seeds
