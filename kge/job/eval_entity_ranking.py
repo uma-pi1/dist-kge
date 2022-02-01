@@ -572,6 +572,8 @@ class EntityRankingJob(EvaluationJob):
         if "Distributed" in str(type(self.model)):
             self.work_scheduler_client.register_eval_result(hists, hists_filt, hists_filt_test)
             self.model.parameter_client.barrier_eval()
+
+            # primary worker merges results from all workers
             if self.model.parameter_client.rank == get_min_rank(self.config):
                 def _move_dict_to_device(h):
                     for key, value in h.items():

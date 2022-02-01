@@ -295,7 +295,7 @@ class WorkScheduler(mp.get_context("fork").Process):
         if len(self.eval_hists) == 0:
             first_eval = True
         for j in range(num_sub_hists):
-            ranks = torch.empty(self.dataset.num_entities(), dtype=self.data_type)
+            ranks = torch.empty(self.dataset.num_entities())
             dist.recv(ranks, src=rank)
             if first_eval:
                 self.eval_hists.append(ranks)
@@ -1145,7 +1145,7 @@ class SchedulerClient:
         hists = [hist, hist_filt, hist_filt_test]
         for h in hists:
             for key, values in h.items():
-                ranks = torch.empty(len(values), dtype=self.data_type)
+                ranks = torch.empty(len(values))
                 dist.recv(ranks, src=self.scheduler_rank)
                 h[key] = ranks
         return hist, hist_filt, hist_filt_test
