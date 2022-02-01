@@ -1,7 +1,7 @@
 # Dist-KGE: A knowledge graph embedding library for multi-GPU and multi-machine training
 
 
-This is the code and configuration accompanying the paper ["Parallel Training of Knowledge Graph Embedding Models: A Comparison of Techniques"](https://www.uni-mannheim.de/media/Einrichtungen/dws/Files_People/Profs/rgemulla/publications/kochsiek22parallelkge.pdf).
+This is the code and configuration accompanying the paper ["Parallel Training of Knowledge Graph Embedding Models: A Comparison of Techniques"](https://vldb.org/pvldb/vol15/p633-kochsiek.pdf).
 The code extends the knowledge graph embedding library [LibKGE](https://github.com/uma-pi1/kge).
 For documentation on LibKGE refer to LibKGE repository.
 We provide the hyper-parameter settings for the experiments in their corresponding configuration files.
@@ -15,6 +15,7 @@ We provide the hyper-parameter settings for the experiments in their correspondi
 4. [Multi-GPU Multi-Machine Training](#multi-gpu-multi-machine-training)
 5. [Folder structure of experiment results](#folder-structure-of-experiment-results)
 6. [Results and Configurations](#results-and-configurations)
+7. [How to cite](#how-to-cite)
 
 ## Quick start
 
@@ -285,3 +286,15 @@ Relation    |   123.8GB |   0.296   |   63.5GB  |   0.300
 Stratification  |   15.0GB  |   0.308   |   7.4GB   |   0.306
 Graph-cut   |   6.1GB   |   0.192   |   3.7GB   |   0.181
 
+
+# How to cite
+```
+@article{kochsiek2022parallel,
+  title={Parallel Training of Knowledge Graph Embedding Models: A Comparison of Techniques},
+  author={Kochsiek, Adrian and Gemulla, Rainer},
+  journal={Proceedings of the VLDB Endowment},
+  volume={15},
+  number={3},
+  year={2022}
+}
+```
