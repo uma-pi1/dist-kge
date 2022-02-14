@@ -229,8 +229,10 @@ class TrainingOrEvaluationJob(Job):
         if self.model is None:
             from kge.model import KgeModel
             self.model = KgeModel.create(
-                config=self.config, dataset=self.dataset,
-                parameter_client=self.parameter_client
+                config=self.config,
+                dataset=self.dataset,
+                parameter_client=self.parameter_client,
+                init_for_load_only=True
             )
         if self.parameter_client.rank == get_min_rank(self.config):
             checkpoint_name, file_ending = checkpoint_name.rsplit(".", 1)
