@@ -289,12 +289,14 @@ Graph-cut   |   6.1GB   |   0.192   |   3.7GB   |   0.181
 
 # How to cite
 ```
-@article{kochsiek2022parallel,
-  title={Parallel Training of Knowledge Graph Embedding Models: A Comparison of Techniques},
+@article{kochsiek2021parallel,
+  title={Parallel training of knowledge graph embedding models: a comparison of techniques},
   author={Kochsiek, Adrian and Gemulla, Rainer},
   journal={Proceedings of the VLDB Endowment},
   volume={15},
   number={3},
-  year={2022}
+  pages={633--645},
+  year={2021},
+  publisher={VLDB Endowment}
 }
 ```
