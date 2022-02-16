@@ -21,7 +21,7 @@ We provide the hyper-parameter settings for the experiments in their correspondi
 
 ```sh
 # retrieve and install project in development mode
-git clone https://github.com/AdrianKs/dist-kge.git
+git clone https://github.com/uma-pi1/dist-kge.git
 cd dist-kge
 pip install -e .
 
