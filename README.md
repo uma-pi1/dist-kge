@@ -140,7 +140,8 @@ job:
   distributed:
     master_ip: '<ip_of_machine_0>'  # ip address of the machine with machine_id 0
     num_machines: 2
-    num_workers_machine: 2
+    num_workers: 4  # total number of workers over all machines
+    num_workers_machine: 2  # number of workers on this machine (default: floor(num_workers/num_machines))
     gloo_socket_ifname: bond0  # name of the interface to use. Use command 'ip address' to find names
     parameter_server: lapse
 ````

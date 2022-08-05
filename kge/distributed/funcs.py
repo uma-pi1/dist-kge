@@ -86,17 +86,19 @@ def create_and_run_distributed(
 ):
     # setting num eval workers to 1 if < 1
     if config.get("job.distributed.num_eval_workers") < 1:
-        warnings.warn("Need to have at least one worker for evaluation."
+        warnings.warn("Need to have at least one worker for evaluation. "
                       "Setting job.distributed.num_eval_workers to 1")
         config.set("job.distributed.num_eval_workers", 1)
     # setting num workers to 1 if < 1
     if config.get("job.distributed.num_workers") < 1:
-        warnings.warn("Need to have at least one worker for training."
+        warnings.warn("Need to have at least one worker for training. "
                       "Setting job.distribtued.num_workers to 1")
         config.set("job.distributed.num_workers", 1)
     # setting num workers per machine to num workers if < 0
     if config.get("job.distributed.num_workers_machine") <= 0:
-        config.set("job.distributed.num_workers_machine", config.get("job.distributed.num_workers"))
+        warnings.warn("Number of workers for this specific machine not defined. "
+                      "Using default floor(num_workers / num_machines).")
+        config.set("job.distributed.num_workers_machine", int(config.get("job.distributed.num_workers")/config.get("job.distributed.num_machines")))
     # setting already initialized workers if < 0
     if config.get("job.distributed.already_init_workers") < 0:
         config.set("job.distributed.already_init_workers",

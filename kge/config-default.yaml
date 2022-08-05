@@ -31,13 +31,19 @@ job:
   device: 'cuda'
   device_pool: [ ]
   distributed:
+    # number of workers over all machines
     num_workers: 1
-    num_workers_machine: -1  # number of workers on this machine. -1 equals num_workers
+
+    # number of workers on this machine. -1 equals floor(num_workers / num_machines)
+    num_workers_machine: -1
+
     # number of already initialized workers
     # if -1 it assumes the same amount of workers at each machine and calculates
     # already_init_workers = machine_id * num_workers_machine
     already_init_workers: -1
-    num_eval_workers: 1  # number of workers to run the evaluation job
+
+    # number of workers to run the evaluation job
+    num_eval_workers: 1
     num_machines: 1
     machine_id: 0
     num_threads_per_process: 2  # omp threads per process
