@@ -34,7 +34,17 @@ cd ..
 kge start examples/toy-complex-train.yaml --job.device cpu
 
 ```
-This example will train on a toy dataset in a sequential setup on CPU
+This example will train on a toy dataset in a sequential setup on CPU.
+
+For further documentation on possible configuration can be found in the file [config-default.yaml](kge/config-default.yaml).
+
+#### Supported Models
+For a list of models for sequential training using a single GPU we refer to [LibKGE](https://github.com/uma-pi1/kge).
+
+Models supporte for Multi-GPU and Multi-Machine are:
+- ComplEx
+- RotatE
+- TransE
 
 
 ## Dataset preparation for parallel training
@@ -141,10 +151,26 @@ job:
     master_ip: '<ip_of_machine_0>'  # ip address of the machine with machine_id 0
     num_machines: 2
     num_workers: 4  # total number of workers over all machines
-    num_workers_machine: 2  # number of workers on this machine (default: floor(num_workers/num_machines))
     gloo_socket_ifname: bond0  # name of the interface to use. Use command 'ip address' to find names
     parameter_server: lapse
 ````
+
+#### Different number of workers per machine
+If you have two machines with a varying number of GPUs you might want to set a varying number of workers per machine. 
+You can do so with the following commands
+
+Command for machine 1
+````sh
+python -m kge start examples/fb15k-complex-distributed.yaml --job.distributed.machine_id 0 --job.distributed.master_ip <ip_of_machine_0> --job.distributed_num_workers_machine 3
+````
+
+Command for machine 2
+````sh
+python -m kge start examples/fb15k-complex-distributed.yaml --job.distributed.machine_id 1 --job.distributed.master_ip <ip_of_machine_0> --job.distributed.num_workers_machine 1 --job.distributed.already_init_workers 3
+````
+
+Note that you need to specify for each machine how many workers are initialized on the previous machines with `job.distributed.already_init_workers` if the number of workers varies per machine.
+You can also create one configuration file per machine, with corresponding settings for `num_workers_machine` and `already_init_workers`.
 
 ## Folder structure of experiment results
 - by default, each experiment will create a new folder in `local/experiments/<timestamp>-<config-name>`
