@@ -47,7 +47,16 @@ job:
     num_machines: 1
     machine_id: 0
     num_threads_per_process: 2  # omp threads per process
-    parameter_server: 'lapse'  # options: lapse, torch
+
+    # parameter server to use for multi-machine or multi-machine training
+    # options
+    #   - shared: (default) best option for single-machine, multi-gpu training
+    #             does not support multi-machine training
+    #   - lapse:  use for multi-machine training. See installation instructions in
+    #             README.md
+    #   - torch:  do not use this option. Only used for debugging
+    parameter_server: 'shared'
+
     master_ip: '127.0.0.1'
     master_port: 8888
     lapse_port: 9091
