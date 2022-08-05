@@ -125,12 +125,12 @@ Run the following example to train on two machines with one GPU each (1@2) with 
 
 Command for machine 1
 ````sh
-python -m kge start examples/fb15k_complex_distributed.yaml --job.distributed.machine_id 0 --job.distributed.master_ip <ip_of_machine_0>
+python -m kge start examples/fb15k-complex-distributed.yaml --job.distributed.machine_id 0 --job.distributed.master_ip <ip_of_machine_0>
 ````
 
 Command for machine 2
 ````sh
-python -m kge start examples/fb15k_complex_distributed.yaml --job.distributed.machine_id 1 --job.distributed.master_ip <ip_of_machine_0>
+python -m kge start examples/fb15k-complex-distributed.yaml --job.distributed.machine_id 1 --job.distributed.master_ip <ip_of_machine_0>
 ````
 
 
