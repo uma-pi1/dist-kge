@@ -113,8 +113,9 @@ train:
 For multi-machine training we use the parameter server [Lapse](https://github.com/alexrenz/lapse-ps).
 To install Lapse and the corresponding python bindings run the following commands:
 ````sh
-git clone https://github.com/alexrenz/lapse-ps.git
+git clone https://github.com/alexrenz/lapse-ps.git lapse-ps
 cd lapse-ps
+git checkout 72c7197c6d1795a8de184de84ffbe1b08151756d
 make ps KEY_TYPE=int64_t CXX11_ABI=$(python bindings/lookup_torch_abi.py) DEPS_PATH=$(pwd)/deps_bindings
 cd bindings 
 python setup.py install --user
