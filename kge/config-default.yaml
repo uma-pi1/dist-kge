@@ -37,7 +37,7 @@ job:
     # number of workers on this machine. -1 equals floor(num_workers / num_machines)
     num_workers_machine: -1
 
-    # number of already initialized workers
+    # number of already initialized workers of machines with smaller machine_id
     # if -1 it assumes the same amount of workers at each machine and calculates
     # already_init_workers = machine_id * num_workers_machine
     already_init_workers: -1
