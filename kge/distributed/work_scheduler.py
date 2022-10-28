@@ -606,7 +606,7 @@ class StratificationWorkScheduler(WorkScheduler):
         )
         triple_partition_assignment = np.stack([s_block, o_block], axis=1)
         partitions = StratificationWorkScheduler._construct_partitions(
-            triple_partition_assignment, num_partitions
+            triple_partition_assignment, num_partitions, np_type=np_type
         )
         entities_in_bucket = StratificationWorkScheduler._get_entities_in_strata(
             entity_to_partition,
@@ -861,11 +861,14 @@ class StratificationWorkScheduler(WorkScheduler):
     def _load_partitions(self, num_partitions):
         start = time.time()
         partition_assignment = self.dataset.load_train_partitions(num_partitions)
-        partitions = self._construct_partitions(partition_assignment, num_partitions)
+        partitions = self._construct_partitions(
+            partition_assignment, num_partitions, TORCH_TO_NP_DTYPE[self.data_type]
+        )
         print("partition load time", time.time() - start)
         return partitions
 
-    def _construct_partitions(self, partition_assignment, num_partitions):
+    @staticmethod
+    def _construct_partitions(partition_assignment, num_partitions, np_type=np.long):
         (
             partition_indexes,
             partition_data,
@@ -876,7 +879,7 @@ class StratificationWorkScheduler(WorkScheduler):
             (i, j) for i in range(num_partitions) for j in range(num_partitions)
         ]
         partition_data = [
-            torch.from_numpy(data).to(self.data_type).contiguous() for data in partition_data
+            torch.from_numpy(data.astype(np_type)).contiguous() for data in partition_data
         ]
         partitions = dict(zip(partition_indexes, partition_data))
         return partitions
