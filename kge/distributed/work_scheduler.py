@@ -513,8 +513,8 @@ class StratificationWorkScheduler(WorkScheduler):
         self._pre_localized_strata: Dict[int, Tuple[int, int]] = {}
         # dictionary: key=worker_rank, value=block
         self.running_blocks: Dict[int, Tuple[int, int]] = {}
-        self.entities_needed_only = self.config.get(
-            "job.distributed.stratification.entities_needed_only"
+        self.active_only = self.config.get(
+            "job.distributed.stratification.active_only"
         )
         self.num_max_entities = 0
 
@@ -527,7 +527,7 @@ class StratificationWorkScheduler(WorkScheduler):
             entities_to_partition,
             self.partitions,
             self.dataset.split("train"),
-            self.entities_needed_only,
+            self.active_only,
             self.combine_mirror_blocks,
             TORCH_TO_NP_DTYPE[self.data_type]
         )
@@ -564,7 +564,7 @@ class StratificationWorkScheduler(WorkScheduler):
         data,
         num_entities,
         num_partitions,
-        entities_needed_only=True,
+        active_only=True,
         combine_mirror_blocks=True,
         np_type=np.long,
     ):
@@ -612,7 +612,7 @@ class StratificationWorkScheduler(WorkScheduler):
             entity_to_partition,
             partitions,
             data.numpy(),
-            entities_needed_only,
+            active_only,
             combine_mirror_blocks,
             np_type
         )
@@ -625,12 +625,12 @@ class StratificationWorkScheduler(WorkScheduler):
         entities_to_partition,
         partitions,
         data,
-        entities_needed_only,
+        active_only,
         combine_mirror_blocks,
         np_type,
     ):
         entities_in_strata = dict()
-        if entities_needed_only:
+        if active_only:
             for strata, strata_data in partitions.items():
                 if combine_mirror_blocks:
                     if strata in entities_in_strata:
@@ -681,7 +681,7 @@ class StratificationWorkScheduler(WorkScheduler):
         if self.num_max_entities > 0:
             # store the result so that we don't have to recompute for every trainer
             return self.num_max_entities
-        if self.entities_needed_only:
+        if self.active_only:
             num_entities_in_strata = [len(i) for i in self._entities_in_bucket.values()]
             len_std = np.std(num_entities_in_strata).item()
             if self.combine_mirror_blocks:
@@ -844,7 +844,7 @@ class StratificationWorkScheduler(WorkScheduler):
                 self.dataset.split("train"),
                 self.dataset.num_entities(),
                 self.num_partitions,
-                self.entities_needed_only,
+                self.active_only,
                 self.combine_mirror_blocks,
                 TORCH_TO_NP_DTYPE[self.data_type],
             ),
