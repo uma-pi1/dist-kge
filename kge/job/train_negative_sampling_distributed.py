@@ -583,6 +583,10 @@ class TrainingJobNegativeSamplingDistributed(TrainingJobNegativeSampling):
 
             # load new work package
             work, work_entities, work_relations = self.work_scheduler_client.get_work()
+            if work_entities is not None:
+                work_entities = work_entities.long()
+            if work_relations is not None:
+                work_relations = work_relations.long()
             self.entity_partition_localized = False
             self.relation_partition_localized = False
             if work is None:
