@@ -9,13 +9,26 @@ We provide the hyper-parameter settings for the experiments in their correspondi
 
 ## Table of contents
 
-1. [Quick start](#quick-start)
-2. [Dataset preparation for parallel training](#dataset-preparation-for-parallel-training)
-3. [Single Machine Multi-GPU Training](#single-machine-multi-gpu-training)
-4. [Multi-GPU Multi-Machine Training](#multi-gpu-multi-machine-training)
-5. [Folder structure of experiment results](#folder-structure-of-experiment-results)
-6. [Results and Configurations](#results-and-configurations)
-7. [How to cite](#how-to-cite)
+1. [News](#news)
+2. [Quick start](#quick-start)
+3. [Dataset preparation for parallel training](#dataset-preparation-for-parallel-training)
+4. [Single Machine Multi-GPU Training](#single-machine-multi-gpu-training)
+5. [Multi-GPU Multi-Machine Training](#multi-gpu-multi-machine-training)
+6. [Folder structure of experiment results](#folder-structure-of-experiment-results)
+7. [Results and Configurations](#results-and-configurations)
+8. [How to cite](#how-to-cite)
+
+## News
+
+In our follow up work ["Start small, think big: On hyperparameter optimization for large-scale knowledge graph embeddings"](https://arxiv.org/pdf/2207.04979.pdf), [(code)](https://github.com/uma-pi1/GraSH), we show (i) the importance of hyperparameter optimiziation (HPO) for large-scale KGEs, and (ii) how to efficently perform HPO on large graphs.
+
+Reported results show strong improvements in terms of MRR.
+
+Paper  |  Setting  |  MRR
+-----  |  ------  |  -----:
+This paper  |  Freebase Random RLB 4@1, dim=128 |  0.426
+Follow up paper  |  Freebarse Random RL 4@1, dim=128  |  0.594
+Follow up paper  |  Freebarse Random RL 4@1, dim=512  |  0.678
 
 ## Quick start
 
