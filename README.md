@@ -27,8 +27,8 @@ Reported results show strong improvements in terms of MRR.
 Paper  |  Setting  |  MRR
 -----  |  ------  |  -----:
 This paper  |  Freebase Random RLB 4@1, dim=128 |  0.426
-Follow up paper  |  Freebarse Random RL 4@1, dim=128  |  0.594
-Follow up paper  |  Freebarse Random RL 4@1, dim=512  |  0.678
+Follow up paper  |  Freebarse Random R 4@1, dim=128  |  0.594
+Follow up paper  |  Freebarse Random R 4@1, dim=512  |  0.678
 
 ## Quick start
 
