@@ -33,7 +33,7 @@ class KgeParameterServer:
 class LapseParameterServer:
     @staticmethod
     def get_parameter_server(config, num_keys):
-        """In Lapse we have a server for every worker, therefore we don't use a lock"""
+        """In Lapse we have a server for every worker, therefor we don't use a lock"""
         set_dmlc_environment(config, role="server")
 
         embedding_dim = config.get("lookup_embedder.dim")

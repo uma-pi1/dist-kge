@@ -67,7 +67,7 @@ class BatchDataset(torch.utils.data.Dataset):
     def __len__(self):
         if self.num_samples.item() <= 0:
             return 0
-        return math.ceil(self.num_samples.item() / self.batch_size)
+        return self.get_real_len()
 
     def get_real_len(self):
         return math.ceil(self.num_samples.item() / self.batch_size)
@@ -88,6 +88,7 @@ class BatchDataset(torch.utils.data.Dataset):
 
     def set_samples(self, samples: torch.Tensor, epoch, partition_id):
         if self.shuffle:
+            # shuffling in numpy is slightly faster
             samples = samples.numpy()
             np.random.shuffle(samples)
             samples = torch.from_numpy(samples)
@@ -447,76 +448,7 @@ class TrainingJobNegativeSamplingDistributed(TrainingJobNegativeSampling):
         result.size = len(batch["triples"])
         result.prepare_time += time.time()
 
-    def handle_validation(self, metric_name):
-        # move all models to cpu and store as tmp model
-        tmp_model = self.model.cpu()
-        #self.valid_job.model = tmp_model
-        del self.model
-        if hasattr(self.valid_job, "model"):
-            del self.valid_job.model
-        gc.collect()
-        if "cuda" in self.device:
-            with torch.cuda.device(self.device):
-                torch.cuda.empty_cache()
-        self.parameter_client.barrier()
-        num_eval_workers = self.config.get("job.distributed.num_eval_workers")
-        if self.parameter_client.rank in range(self.min_rank, self.min_rank + num_eval_workers):
-            # create a model for validation with entity embedder size
-            #  batch_size x 2 + eval.chunk_size
-            self.config.set(self.config.get("model") + ".create_eval", True)
 
-            tmp_pretrain_model_filename = self.config.get("lookup_embedder.pretrain.model_filename")
-            self.config.set("lookup_embedder.pretrain.model_filename", "")
-            self.model = KgeModel.create(
-                self.config, self.dataset, parameter_client=self.parameter_client
-            )
-            self.model.get_s_embedder().to_device(move_optim_data=False)
-            self.model.get_p_embedder().to_device(move_optim_data=False)
-            self.config.set("lookup_embedder.pretrain.model_filename", tmp_pretrain_model_filename)
-            self.config.set(self.config.get("model") + ".create_eval", False)
-
-            self.valid_job.model = self.model
-            # validate and update learning rate
-            super(TrainingJobNegativeSamplingDistributed, self).handle_validation(
-                metric_name
-            )
-
-            # clean up valid model
-            del self.model
-            del self.valid_job.model
-            gc.collect()
-            if "cuda" in self.device:
-                with torch.cuda.device(self.device):
-                    torch.cuda.empty_cache()
-        else:
-            self.kge_lr_scheduler.step()
-        self.parameter_client.barrier()
-        self.model = tmp_model.to(self.device)
-        del tmp_model
-        gc.collect()
-
-    def handle_running_checkpoint(self, checkpoint_every, checkpoint_keep):
-        # since it is rather expensive to handle checkpoints in every epoch we only
-        # do it every time we are evaluating now
-        valid_every = self.config.get("valid.every")
-        self.parameter_client.barrier()
-        if self.parameter_client.rank == self.min_rank:
-            self.save(self.config.checkpoint_file(self.epoch))
-            delete_checkpoint_epoch = 0
-            if checkpoint_every == 0:
-                # do not keep any old checkpoints
-                delete_checkpoint_epoch = self.epoch - valid_every
-                # checkpoint every does not help a lot if we only store on valid
-            elif checkpoint_keep > 0:
-                # keep a maximum number of checkpoint_keep checkpoints
-                delete_checkpoint_epoch = (
-                    self.epoch - valid_every - valid_every * checkpoint_keep
-                )
-            if delete_checkpoint_epoch > 0:
-                self._delete_checkpoint(
-                    delete_checkpoint_epoch
-                )
-        self.parameter_client.barrier()
 
     def _init_dataloader(self):
         mp_context = (
@@ -889,6 +821,77 @@ class TrainingJobNegativeSamplingDistributed(TrainingJobNegativeSampling):
         )
         self.current_trace["epoch"] = None
         return trace_entry
+
+    def handle_validation(self, metric_name):
+        # move all models to cpu and store as tmp model
+        tmp_model = self.model.cpu()
+        #self.valid_job.model = tmp_model
+        del self.model
+        if hasattr(self.valid_job, "model"):
+            del self.valid_job.model
+        gc.collect()
+        if "cuda" in self.device:
+            with torch.cuda.device(self.device):
+                torch.cuda.empty_cache()
+        self.parameter_client.barrier()
+        num_eval_workers = self.config.get("job.distributed.num_eval_workers")
+        if self.parameter_client.rank in range(self.min_rank, self.min_rank + num_eval_workers):
+            # create a model for validation with entity embedder size
+            #  batch_size x 2 + eval.chunk_size
+            self.config.set(self.config.get("model") + ".create_eval", True)
+
+            tmp_pretrain_model_filename = self.config.get("lookup_embedder.pretrain.model_filename")
+            self.config.set("lookup_embedder.pretrain.model_filename", "")
+            self.model = KgeModel.create(
+                self.config, self.dataset, parameter_client=self.parameter_client
+            )
+            self.model.get_s_embedder().to_device(move_optim_data=False)
+            self.model.get_p_embedder().to_device(move_optim_data=False)
+            self.config.set("lookup_embedder.pretrain.model_filename", tmp_pretrain_model_filename)
+            self.config.set(self.config.get("model") + ".create_eval", False)
+
+            self.valid_job.model = self.model
+            # validate and update learning rate
+            super(TrainingJobNegativeSamplingDistributed, self).handle_validation(
+                metric_name
+            )
+
+            # clean up valid model
+            del self.model
+            del self.valid_job.model
+            gc.collect()
+            if "cuda" in self.device:
+                with torch.cuda.device(self.device):
+                    torch.cuda.empty_cache()
+        else:
+            self.kge_lr_scheduler.step()
+        self.parameter_client.barrier()
+        self.model = tmp_model.to(self.device)
+        del tmp_model
+        gc.collect()
+
+    def handle_running_checkpoint(self, checkpoint_every, checkpoint_keep):
+        # since it is rather expensive to handle checkpoints in every epoch we only
+        # do it every time we are evaluating now
+        valid_every = self.config.get("valid.every")
+        self.parameter_client.barrier()
+        if self.parameter_client.rank == self.min_rank:
+            self.save(self.config.checkpoint_file(self.epoch))
+            delete_checkpoint_epoch = 0
+            if checkpoint_every == 0:
+                # do not keep any old checkpoints
+                delete_checkpoint_epoch = self.epoch - valid_every
+                # checkpoint every does not help a lot if we only store on valid
+            elif checkpoint_keep > 0:
+                # keep a maximum number of checkpoint_keep checkpoints
+                delete_checkpoint_epoch = (
+                        self.epoch - valid_every - valid_every * checkpoint_keep
+                )
+            if delete_checkpoint_epoch > 0:
+                self._delete_checkpoint(
+                    delete_checkpoint_epoch
+                )
+        self.parameter_client.barrier()
 
     def _delete_checkpoint(self, checkpoint_id):
         filename = self.config.checkpoint_file(checkpoint_id)

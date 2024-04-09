@@ -16,19 +16,6 @@ def shuffle_with_inverse(data: np.array):
     return data[order], inverse
 
 
-def _construct_partitions_slow(partition_assignment, num_partitions):
-    partition_indexes = np.unique(partition_assignment, axis=0)
-    partitions_data = [
-        torch.from_numpy(
-            np.where(np.all(partition_assignment == i, axis=1))[0]
-        ).contiguous()
-        for i in partition_indexes
-    ]
-    partition_indexes = [(i[0], i[1]) for i in partition_indexes]
-    partitions = dict(zip(partition_indexes, partitions_data))
-    return partitions
-
-
 def _construct_partitions(partition_assignment, num_partitions):
     partition_indexes, partition_data = _numba_construct_partitions(np.ascontiguousarray(partition_assignment), num_partitions)
     partition_indexes = [(i, j) for i in range(num_partitions) for j in range(num_partitions)]
@@ -95,11 +82,11 @@ def random_map_entities(data: np.array, entity_ids: np.array):
     return data, mapped_entity_ids
 
 
-def get_partition_old(entity_id, dataset_size, num_partitions):
-    partition = math.floor(entity_id * 1.0 / dataset_size * 1.0 * num_partitions)
-    return partition
-
-@numba.guvectorize([(numba.int64[:], numba.int64, numba.int64, numba.int64[:])], '(n),(),()->(n)')
+@numba.guvectorize(
+    [(numba.int64[:], numba.int64, numba.int64, numba.int64[:])],
+    '(n),(),()->(n)',
+    nopython=True
+)
 def get_partition(entity_ids, dataset_size, num_partitions, res):
     # result = np.empty(len(entity_ids), dtype=np.long)
     # num_partitions = 8

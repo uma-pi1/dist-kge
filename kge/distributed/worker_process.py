@@ -30,18 +30,23 @@ class WorkerProcessPool:
         configs = {}
         parameters = None
         if config.get("job.distributed.parameter_server") == "shared":
+            # When we use a shared tensor as a parameter server, the shared memory needs
+            # to be allocated before creating the worker processes and shared between
+            # workers
             num_keys = get_num_keys(config, dataset)
             embedding_dim = config.get("lookup_embedder.dim")
             optimizer_dim = get_optimizer_dim(config, embedding_dim)
-            parameters = torch.empty((num_keys, embedding_dim + optimizer_dim), dtype=torch.float32,
-                                     requires_grad=False).share_memory_()
+            parameters = torch.empty(
+                (num_keys, embedding_dim + optimizer_dim),
+                dtype=torch.float32,
+                requires_grad=False
+            ).share_memory_()
         for rank in range(num_workers_machine):
             if rank == 0:
                 self.recv_end, send_end = mp.Pipe(False)
             else:
                 send_end = None
             configs[rank] = deepcopy(config)
-            #configs[rank].set(config.get("model") + ".create_complete", False)
             configs[rank].init_folder()
             worker = WorkerProcess(
                 rank + already_init_workers,

@@ -86,7 +86,7 @@ class KvsAllIndex:
             if default_return_value is None:
                 return self.default_factory()
             return default_return_value
-        return self._values_of(key_index.item())
+        return self._values_of(key_index)
 
     def _values_of(self, key_index) -> torch.Tensor:
         start = self._values_offset[key_index]

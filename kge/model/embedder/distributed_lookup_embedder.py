@@ -262,9 +262,6 @@ class DistributedLookupEmbedder(LookupEmbedder):
         self.parameter_client.localize(
             (indexes + self.lapse_offset).cpu(), asynchronous
         )
-        # TODO: also pull the embeddings and store in a tensor on gpu
-        #  this needs to be handled in the background somehow
-        #  to device can be done in background, but this needs to wait for localize
 
     def _embed(self, indexes: Tensor) -> Tensor:
         long_indexes = indexes.long()

@@ -9,6 +9,16 @@ from copy import deepcopy
 
 
 class DistributedModel(KgeModel):
+    """
+    This is a wrapper around KgeModels to allow for distributed training.
+    It creates the models' embedder in the size of maximum number of possible entities
+    and relations that can occur in a batch.
+    For stratification the size can be set to the number of entities that occur in the
+    partition.
+
+    The created embedders hold the parameter client and provide an API to move parameters
+    between model and parameter server.
+    """
     def __init__(
         self,
         config: Config,
@@ -77,6 +87,7 @@ class DistributedModel(KgeModel):
             complete_vocab_size=self.base_model.dataset.num_relations(),
             )
 
+        # initialize the model with parameters stemming from a checkpoint
         if not init_for_load_only and parameter_client.rank == get_min_rank(self.config):
             # load pretrained embeddings
             pretrained_entities_filename = ""

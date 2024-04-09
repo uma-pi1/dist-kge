@@ -80,10 +80,7 @@ def monitor_gpus(folder, interval=1):
                 f"{time.time()};{i};{res.gpu};{round((mem_res.used/mem_res.total)*100)};{mem_per_process}"
             )
 
-
-def create_and_run_distributed(
-    config: Config, dataset: Optional[Dataset] = None, checkpoint: Optional[Dict] = None
-):
+def update_config_for_distributed(config: Config):
     # setting num eval workers to 1 if < 1
     if config.get("job.distributed.num_eval_workers") < 1:
         warnings.warn("Need to have at least one worker for evaluation. "
@@ -113,6 +110,14 @@ def create_and_run_distributed(
         config.set("job.distributed.gloo_socket_ifname", "lo")
         config.set("job.distributed.master_ip", "127.0.0.1")
         config.set(f"{config.get('model')}.create_eval", True)
+    return config
+
+
+def create_and_run_distributed(
+    config: Config, dataset: Optional[Dataset] = None, checkpoint: Optional[Dict] = None
+):
+    config = update_config_for_distributed(config)
+
     os.environ["OMP_NUM_THREADS"] = str(
         config.get("job.distributed.num_threads_per_process")
     )

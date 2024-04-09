@@ -294,7 +294,7 @@ class BatchNegativeSample(Configurable):
         self.prepare_time = 0.0
 
         # the default implementation here is based on the set of all samples as provided
-        # by self.samples(); get the relavant data
+        # by self.samples(); get the relevant data
         slot = self.slot
         self.prepare_time -= time.time()
         negative_samples = self.samples(indexes)
@@ -787,15 +787,7 @@ class KgeUniformSampler(KgeSampler):
         # we start with random drop position for each row and then update the ones that
         # contain its positive in the negative samples
         positives = positive_triples[:, slot].numpy()
-        drop_index = np.random.choice(num_unique + 1, batch_size, replace=True)
-        # TODO can we do the following quicker?
-        unique_samples_index = {s: j for j, s in enumerate(unique_samples)}
-        for i, v in [
-            (i, unique_samples_index.get(positives[i]))
-            for i in range(batch_size)
-            if positives[i] in unique_samples_index
-        ]:
-            drop_index[i] = v
+        drop_index = self._create_shared_drop_index(positives, unique_samples, num_unique)
 
         # now we are done for default
         return DefaultSharedNegativeSample(
@@ -809,6 +801,20 @@ class KgeUniformSampler(KgeSampler):
             repeat_indexes,
         )
 
+    @staticmethod
+    @numba.jit
+    def _create_shared_drop_index(positives, unique_samples, num_unique):
+        batch_size = len(positives)
+        drop_index = np.random.randint(0, num_unique, batch_size)
+        unique_samples_index = dict()
+        for i in range(len(unique_samples)):
+            unique_samples_index[unique_samples[i]] = i
+        for i in range(batch_size):
+            if positives[i] not in unique_samples_index:
+                continue
+            drop_index[i] = unique_samples_index.get(positives[i])
+        return drop_index
+
     def _filter_and_resample_fast(
         self, negative_samples: torch.Tensor, slot: int, positive_triples: torch.Tensor
     ):
@@ -818,7 +824,7 @@ class KgeUniformSampler(KgeSampler):
             f"{self.filtering_split}_{pair_str}_to_{SLOT_STR[slot]}"
         )
         cols = [[P, O], [S, O], [S, P]][slot]
-        pairs = positive_triples[:, cols].numpy()
+        pairs = positive_triples[:, cols].numpy().astype(np.int32)
         batch_size = positive_triples.size(0)
         voc_size = self.vocabulary_size[slot]
         # filling a numba-dict here and then call the function was faster than 1. Using
@@ -869,7 +875,6 @@ class KgeFrequencySampler(KgeSampler):
     Sample negatives based on their relative occurrence in the slot in the train set.
     Sample frequency based in hierarchical fashion
     Can be smoothed with a symmetric prior.
-    Todo: this implementation is very unclean and unfinished
     """
 
     def __init__(self, config, configuration_key, dataset):
@@ -969,6 +974,7 @@ class KgeFrequencySampler(KgeSampler):
             torch.tensor(drop_index),
             repeat_indexes,
         )
+
 
 class KgeHierarchicalFrequencySampler(KgeSampler):
     """

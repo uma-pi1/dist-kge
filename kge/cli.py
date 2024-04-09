@@ -155,7 +155,7 @@ def main():
     parser = create_parser(config)
     args, unknown_args = parser.parse_known_args()
 
-    # If there where unknown args, add them to the parser and reparse. The correctness
+    # If there are unknown args, add them to the parser and reparse. The correctness
     # of these arguments will be checked later.
     if len(unknown_args) > 0:
         parser = create_parser(
