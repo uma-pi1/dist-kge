@@ -64,9 +64,6 @@ class DistAdagrad(Optimizer):
         self.is_row = is_row
 
         self.parameter_client = parameter_client
-        # this array stores helper cpu tensors in which we pull data from the parameter
-        # client. We don't want to create a new tensor in every step.
-        self.pull_tensors = {"entity": None, "relation": None}
         self.push_keys = {"entity": None, "relation": None}
         self.push_tensors = {
             "entity": None,
