@@ -5,7 +5,7 @@ from typing import List, Tuple
 
 class StratificationScheduleCreator:
     """
-    Creates a non blocking schedule for stratification partitioning
+    Creates a non-blocking schedule for stratification partitioning
     can only handle num partitions of base 2
     num partitions needs to be 2*num_workers
     """
@@ -21,7 +21,7 @@ class StratificationScheduleCreator:
 
     def create_schedule(self) -> List[List[Tuple[int, int]]]:
         """
-        creates non blocking schedule
+        creates non-blocking schedule
         Returns:
             list of iterations
             each iteration is a list of blocks (i,j) of size num_workers

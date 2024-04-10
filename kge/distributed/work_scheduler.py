@@ -139,7 +139,6 @@ class WorkScheduler(mp.get_context("fork").Process):
         epoch_time = None
         if self.repartition_epoch:
             if self.repartition_worker_pool is None:
-                mp.Pool()
                 self.repartition_worker_pool = mp.Pool(processes=1)
             self._repartition_in_background()
 
@@ -877,9 +876,6 @@ class StratificationWorkScheduler(WorkScheduler):
         ) = StratificationWorkScheduler._numba_construct_partitions(
             np.ascontiguousarray(partition_assignment), num_partitions
         )
-        partition_indexes = [
-            (i, j) for i in range(num_partitions) for j in range(num_partitions)
-        ]
         partition_data = [
             torch.from_numpy(data.astype(np_type)).contiguous() for data in partition_data
         ]
@@ -899,6 +895,9 @@ class StratificationWorkScheduler(WorkScheduler):
             partition = partition_indexes[i]
             partition_id_lookup[partition] = i
             partition_lengths[i] = 0
+            # pre-allocate too much memory, on expectation we would only need
+            # len(partition_assignment) / math.pow(num_partitions, 2)
+            # this is faster than extending memory later on if a partition is larger
             partition_data.append(
                 np.empty(
                     int(len(partition_assignment) / num_partitions), dtype=np.int64
@@ -938,7 +937,16 @@ class SchedulerClient:
         max_relations = info_buffer[1]
         return max_entities, max_relations
 
-    def _receive_work(self, cmd):
+    def _receive_work(
+            self, cmd
+    ) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
+        """
+
+        Returns:
+            work_buffer: tensor containing the triples
+            entity_buffer: tensor containing the entities
+            relation_buffer: tensor containing the relations
+        """
         work_buffer = torch.empty((cmd[1].item(),), dtype=self.data_type)
         dist.recv(work_buffer, src=self.scheduler_rank)
         # get partition entities
@@ -960,6 +968,13 @@ class SchedulerClient:
     def get_work(
         self,
     ) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
+        """
+
+        Returns:
+            work_buffer: tensor containing the triples
+            entity_buffer: tensor containing the entities
+            relation_buffer: tensor containing the relations
+        """
         while True:
             cmd = torch.tensor([SCHEDULER_CMDS.GET_WORK, self.machine_id], dtype=self.data_type)
             dist.send(cmd, dst=self.scheduler_rank)
@@ -973,6 +988,14 @@ class SchedulerClient:
                 return None, None, None
 
     def get_pre_localize_work(self):
+        """
+
+        Returns:
+            work: tensor containing the triples
+            entities: tensor containing the entities
+            relations: tensor containing the relations
+            wait: bool indicating whether to wait for others to finish
+        """
         cmd = torch.tensor([SCHEDULER_CMDS.PRE_LOCALIZE_WORK, self.machine_id], dtype=self.data_type)
         dist.send(cmd, dst=self.scheduler_rank)
         dist.recv(cmd, src=self.scheduler_rank)
